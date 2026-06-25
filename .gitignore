@@ -1,0 +1,6 @@
+*.o
+*.elf
+*.iso
+*.log
+link.ld
+botchsrc
