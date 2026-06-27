@@ -4,7 +4,7 @@ MAGIC_NUMBER equ 0x1BADB002     ; define the magic number constant
 FLAGS        equ 0x0            ; multiboot flags
 CHECKSUM     equ -MAGIC_NUMBER  ; calculate the checksum
                                 ; (magic number + checksum + flags should equal 0)
-PRINT_START_OFFSET equ 0xB8000 + 15*80*2
+FB_MMIO_ADDR equ 0xB8000         ; framebuffer memory addr
 VGA_CRTC_IDX_PORT equ 0x3D4     ; VGA CRTC index port
 VGA_CRTC_DAT_PORT equ 0x3D5		; VGA CRTC data port
 
@@ -27,12 +27,28 @@ align 4                         ; the code must be 4 byte aligned
     dd CHECKSUM                 ; and the checksum
 
 eos:                            ; the entry label (defined as entry point in linker script)
+	mov dx, VGA_CRTC_IDX_PORT
+	mov al, 0x0F
+	out dx, al                  ; latch index
+	mov dx, VGA_CRTC_DAT_PORT
+	in al, dx                   ; get data
+	mov bl, al                  ; store low bits
+	mov dx, VGA_CRTC_IDX_PORT
+	mov al, 0x0E
+	out dx, al                  ; latch index
+	mov dx, VGA_CRTC_DAT_PORT
+	in al, dx                   ; get data
+	movzx eax, al               ; widen
+	shl eax, 8                  ; shift to high bits
+	or al, bl                   ; set low bits
+	shl eax, 1                  ; cell offset -> byte offset
+	add eax, 160                ; pad one blank line
 
 	mov ecx, 0
 .printmsg:
 	mov bl, [msg + ecx]
-	mov [PRINT_START_OFFSET+ecx*2], bl     ; write character
-	mov byte [PRINT_START_OFFSET+ecx*2+1], 0x07 ; write color of char
+	mov [FB_MMIO_ADDR+eax+ecx*2], bl     ; write character
+	mov byte [FB_MMIO_ADDR+eax+ecx*2+1], 0x07 ; write color of char
 	inc ecx
 	cmp ecx, msg_len
 	jne .printmsg
