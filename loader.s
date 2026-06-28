@@ -28,7 +28,45 @@ section .text                   ; start of the text (code) section
 load_eos:                       ; the entry label (defined as entry point in linker script)
 	mov esp, kernel_stack + KERNEL_STACK_SIZE   ; point esp to the start of the
                                                     ; stack (end of memory area)
-	; get cell offset and byte offset into current cursor pos
+	call crtc_read_fb_cell
+	mov eax, esi
+	shl eax, 1                  ; convert to byte offset
+	add eax, 160                ; pad one line
+	add esi, 80 + msg_len       ; compute placement of cursor
+
+	; print out boot message to screen
+	mov ecx, 0
+.printmsg:
+	mov bl, [msg + ecx]
+	mov [FB_MMIO_ADDR+eax+ecx*2], bl          ; write character
+	mov byte [FB_MMIO_ADDR+eax+ecx*2+1], 0x07 ; write color of char
+	inc ecx
+	cmp ecx, msg_len
+	jne .printmsg
+
+	; print cursor
+	mov al, 0x0E
+	mov ebx, esi
+	shr ebx, 8
+	call crtc_write            ; write cursor pos high bits
+	mov al, 0x0F
+	mov ebx, esi
+	call crtc_write            ; write cursor pos low bits
+	mov al, 0x0A
+	mov ebx, 0
+	call crtc_write            ; write scanline start pos
+	mov al, 0x0B
+	mov ebx, 0x0F
+	call crtc_write            ; write scanline end pos
+
+.hang:
+	; bye bye
+	cli
+	hlt
+	jmp .hang
+
+; get crtc cell offset in fb left by bootloader
+crtc_read_fb_cell:
 	mov dx, VGA_CRTC_IDX_PORT
 	mov al, 0x0F
 	out dx, al                  ; latch index
@@ -43,41 +81,8 @@ load_eos:                       ; the entry label (defined as entry point in lin
 	movzx eax, al               ; widen
 	shl eax, 8                  ; shift to high bits
 	or al, bl                   ; set low bits
-	mov ebx, eax
-	add ebx, 80 + msg_len       ; compute cell offset
-	mov [cursor_pos], ebx
-	shl eax, 1
-	add eax, 160                ; compute byte offset
-
-	mov ecx, 0
-.printmsg:
-	mov bl, [msg + ecx]
-	mov [FB_MMIO_ADDR+eax+ecx*2], bl          ; write character
-	mov byte [FB_MMIO_ADDR+eax+ecx*2+1], 0x07 ; write color of char
-	inc ecx
-	cmp ecx, msg_len
-	jne .printmsg
-
-	; print cursor
-	mov al, 0x0E
-	mov ebx, [cursor_pos]
-	shr ebx, 8
-	call crtc_write            ; write cursor pos high bits
-	mov al, 0x0F
-	mov ebx, [cursor_pos]
-	call crtc_write            ; write cursor pos low bits
-	mov al, 0x0A
-	mov ebx, 0
-	call crtc_write            ; write scanline start pos
-	mov al, 0x0B
-	mov ebx, 0x0F
-	call crtc_write            ; write scanline end pos
-
-.hang:
-	; bye bye
-	cli
-	hlt
-	jmp .hang
+	mov esi, eax
+	ret
 
 ; routine for pmio to crtc
 crtc_write:
