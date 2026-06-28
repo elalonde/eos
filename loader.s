@@ -66,7 +66,11 @@ load_eos:                       ; the entry label (defined as entry point in lin
 	jmp .hang
 
 ; get crtc cell offset in fb left by bootloader
+; postcondition: esi holds cell offset
 crtc_read_fb_cell:
+	push eax
+	push ebx
+	push edx
 	mov dx, VGA_CRTC_IDX_PORT
 	mov al, 0x0F
 	out dx, al                  ; latch index
@@ -82,6 +86,9 @@ crtc_read_fb_cell:
 	shl eax, 8                  ; shift to high bits
 	or al, bl                   ; set low bits
 	mov esi, eax
+	pop edx
+	pop ebx
+	pop eax
 	ret
 
 ; routine for pmio to crtc
@@ -89,9 +96,11 @@ crtc_write:
 	; expects:
 	;  al has register to latch
 	;  bl has data to write
+	push edx
 	mov dx, VGA_CRTC_IDX_PORT
 	out dx, al                 ; latch register
 	mov dx, VGA_CRTC_DAT_PORT
 	mov al, bl
 	out dx, al                 ; write data
+	pop edx
 	ret
