@@ -4,29 +4,30 @@ MAGIC_NUMBER equ 0x1BADB002     ; define the magic number constant
 FLAGS        equ 0x0            ; multiboot flags
 CHECKSUM     equ -MAGIC_NUMBER  ; calculate the checksum
                                 ; (magic number + checksum + flags should equal 0)
-FB_MMIO_ADDR equ 0xB8000         ; framebuffer memory addr
+FB_MMIO_ADDR equ 0xB8000        ; framebuffer memory addr
 VGA_CRTC_IDX_PORT equ 0x3D4     ; VGA CRTC index port
-VGA_CRTC_DAT_PORT equ 0x3D5		; VGA CRTC data port
+VGA_CRTC_DAT_PORT equ 0x3D5     ; VGA CRTC data port
 
 section .rodata
                                 ; blinking cursor (register, value) pairs
-	cursor db 0x0E, 0x04        ; set cursor location high bits
-           db 0x0F, 0xBC        ; set cursor location low bits
-		   db 0x0A, 0x00        ; set cursor start scanline
-		   db 0x0B, 0x0F        ; set cursor end scanline
-    cursor_len equ $-cursor
+	cursor db 0x0E, 0x04    ; set cursor location high bits
+	db 0x0F, 0xBC           ; set cursor location low bits
+	db 0x0A, 0x00           ; set cursor start scanline
+	db 0x0B, 0x0F           ; set cursor end scanline
+	cursor_len equ $-cursor
 
 section .data
 	msg db "Hello, Eric."
 	msg_len equ  $-msg
 
 section .text                   ; start of the text (code) section
-align 4                         ; the code must be 4 byte aligned
-    dd MAGIC_NUMBER             ; write the magic number to the machine code,
-    dd FLAGS                    ; the flags,
-    dd CHECKSUM                 ; and the checksum
+	align 4                 ; the code must be 4 byte aligned
+	dd MAGIC_NUMBER         ; write the magic number to the machine code,
+	dd FLAGS                ; the flags,
+	dd CHECKSUM             ; and the checksum
 
 eos:                            ; the entry label (defined as entry point in linker script)
+	; get byte offset into current cursor pos
 	mov dx, VGA_CRTC_IDX_PORT
 	mov al, 0x0F
 	out dx, al                  ; latch index
@@ -42,7 +43,7 @@ eos:                            ; the entry label (defined as entry point in lin
 	shl eax, 8                  ; shift to high bits
 	or al, bl                   ; set low bits
 	shl eax, 1                  ; cell offset -> byte offset
-	add eax, 160                ; pad one blank line
+	add eax, 160                ; pad one blank line, eax = cursor position
 
 	mov ecx, 0
 .printmsg:
