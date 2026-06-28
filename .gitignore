@@ -2,4 +2,6 @@
 *.elf
 *.iso
 *.log
-botchsrc
+*.diff
+bochsrc
+*.sw[op]
