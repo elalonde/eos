@@ -4,17 +4,16 @@ MAGIC_NUMBER equ 0x1BADB002     ; define the magic number constant
 FLAGS        equ 0x0            ; multiboot flags
 CHECKSUM     equ -MAGIC_NUMBER  ; calculate the checksum
                                 ; (magic number + checksum + flags should equal 0)
-FB_MMIO_ADDR equ 0xB8000        ; framebuffer memory addr
+FB_MMIO_ADDR      equ 0xB8000   ; framebuffer memory addr
 VGA_CRTC_IDX_PORT equ 0x3D4     ; VGA CRTC index port
 VGA_CRTC_DAT_PORT equ 0x3D5     ; VGA CRTC data port
+KERNEL_STACK_SIZE equ 4096      ; size of stack in bytes
 
-section .rodata
-                                ; blinking cursor (register, value) pairs
-	cursor db 0x0E, 0x04    ; set cursor location high bits
-	db 0x0F, 0xBC           ; set cursor location low bits
-	db 0x0A, 0x00           ; set cursor start scanline
-	db 0x0B, 0x0F           ; set cursor end scanline
-	cursor_len equ $-cursor
+section .bss
+	align 4                 ; align at 4 bytes
+	cursor_pos resd 1       ; for storing cursor position after message
+kernel_stack:                   ; label points to beginning of memory
+	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
 
 section .data
 	msg db "Hello, Eric."
@@ -27,7 +26,9 @@ section .text                   ; start of the text (code) section
 	dd CHECKSUM             ; and the checksum
 
 eos:                            ; the entry label (defined as entry point in linker script)
-	; get byte offset into current cursor pos
+	mov esp, kernel_stack + KERNEL_STACK_SIZE   ; point esp to the start of the
+                                                    ; stack (end of memory area)
+	; get cell offset and byte offset into current cursor pos
 	mov dx, VGA_CRTC_IDX_PORT
 	mov al, 0x0F
 	out dx, al                  ; latch index
@@ -42,29 +43,50 @@ eos:                            ; the entry label (defined as entry point in lin
 	movzx eax, al               ; widen
 	shl eax, 8                  ; shift to high bits
 	or al, bl                   ; set low bits
-	shl eax, 1                  ; cell offset -> byte offset
-	add eax, 160                ; pad one blank line, eax = cursor position
+	mov ebx, eax
+	add ebx, 80 + msg_len       ; compute cell offset
+	mov [cursor_pos], ebx
+	shl eax, 1
+	add eax, 160                ; compute byte offset
 
 	mov ecx, 0
 .printmsg:
 	mov bl, [msg + ecx]
-	mov [FB_MMIO_ADDR+eax+ecx*2], bl     ; write character
+	mov [FB_MMIO_ADDR+eax+ecx*2], bl          ; write character
 	mov byte [FB_MMIO_ADDR+eax+ecx*2+1], 0x07 ; write color of char
 	inc ecx
 	cmp ecx, msg_len
 	jne .printmsg
 
-	mov ecx, 0
-.printcursor:
+	; print cursor
+	mov al, 0x0E
+	mov ebx, [cursor_pos]
+	shr ebx, 8
+	call ctrc_write            ; write cursor pos high bits
+	mov al, 0x0F
+	mov ebx, [cursor_pos]
+	call ctrc_write            ; write cursor pos low bits
+	mov al, 0x0A
+	mov ebx, 0
+	call ctrc_write            ; write scanline start pos
+	mov al, 0x0B
+	mov ebx, 0x0F
+	call ctrc_write            ; write scanline end pos
+
+.hang:
+	; bye bye
+	cli
+	hlt
+	jmp .hang
+
+; routine for pmio to crtc
+ctrc_write:
+	; expects:
+	;  al has register to latch
+	;  bl has data to write
 	mov dx, VGA_CRTC_IDX_PORT
-	mov al, [cursor+ecx]
 	out dx, al                 ; latch register
 	mov dx, VGA_CRTC_DAT_PORT
-	mov al, [cursor+ecx+1]
+	mov al, bl
 	out dx, al                 ; write data
-	add ecx, 2 ; next pair
-	cmp ecx, cursor_len
-	jne .printcursor
-
-.loop:
-    jmp .loop                   ; loop forever
+	ret
