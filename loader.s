@@ -1,4 +1,4 @@
-global eos                      ; the entry symbol for ELF
+global load_eos                 ; the entry symbol for ELF
 
 MAGIC_NUMBER equ 0x1BADB002     ; define the magic number constant
 FLAGS        equ 0x0            ; multiboot flags
@@ -25,7 +25,7 @@ section .text                   ; start of the text (code) section
 	dd FLAGS                ; the flags,
 	dd CHECKSUM             ; and the checksum
 
-eos:                            ; the entry label (defined as entry point in linker script)
+load_eos:                       ; the entry label (defined as entry point in linker script)
 	mov esp, kernel_stack + KERNEL_STACK_SIZE   ; point esp to the start of the
                                                     ; stack (end of memory area)
 	; get cell offset and byte offset into current cursor pos
