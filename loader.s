@@ -62,16 +62,16 @@ load_eos:                       ; the entry label (defined as entry point in lin
 	mov al, 0x0E
 	mov ebx, [cursor_pos]
 	shr ebx, 8
-	call ctrc_write            ; write cursor pos high bits
+	call crtc_write            ; write cursor pos high bits
 	mov al, 0x0F
 	mov ebx, [cursor_pos]
-	call ctrc_write            ; write cursor pos low bits
+	call crtc_write            ; write cursor pos low bits
 	mov al, 0x0A
 	mov ebx, 0
-	call ctrc_write            ; write scanline start pos
+	call crtc_write            ; write scanline start pos
 	mov al, 0x0B
 	mov ebx, 0x0F
-	call ctrc_write            ; write scanline end pos
+	call crtc_write            ; write scanline end pos
 
 .hang:
 	; bye bye
@@ -80,7 +80,7 @@ load_eos:                       ; the entry label (defined as entry point in lin
 	jmp .hang
 
 ; routine for pmio to crtc
-ctrc_write:
+crtc_write:
 	; expects:
 	;  al has register to latch
 	;  bl has data to write
