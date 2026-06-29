@@ -8,9 +8,8 @@ and Adam Renberg.
 
 ## About
 
-A from-scratch walk through low-level x86 systems programming — boot sequence,
-protected mode, and the VGA text-mode console — built incrementally as a
-learning exercise rather than a finished kernel.
+A from-scratch walk through low-level x86 systems programming as a learning
+exercise.
 
 ## Topics
 
