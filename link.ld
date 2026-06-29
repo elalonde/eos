@@ -20,7 +20,11 @@ SECTIONS {
 
     .bss ALIGN (0x1000) :    /* align at 4 KB */
     {
+        __bss_start = .;
         *(COMMON)            /* all COMMON sections from all files */
         *(.bss)              /* all bss sections from all files */
+        . = ALIGN(4);
+        __bss_end = .;       /* ensure .bss end is 4 aligned for zeroing during
+                                load */
     }
 }

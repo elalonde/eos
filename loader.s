@@ -1,4 +1,6 @@
 global load_eos                 ; the entry symbol for ELF
+extern __bss_start              ; defined by linker
+extern __bss_end
 
 MAGIC_NUMBER equ 0x1BADB002     ; define the magic number constant
 FLAGS        equ 0x0            ; multiboot flags
@@ -11,7 +13,6 @@ KERNEL_STACK_SIZE equ 4096      ; size of stack in bytes
 
 section .bss
 	align 4                 ; align at 4 bytes
-	cursor_pos resd 1       ; for storing cursor position after message
 kernel_stack:                   ; label points to beginning of memory
 	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
 
@@ -26,6 +27,15 @@ section .text                   ; start of the text (code) section
 	dd CHECKSUM             ; and the checksum
 
 load_eos:                       ; the entry label (defined as entry point in linker script)
+	; zero out .bss region
+	cld                   ; direction
+	mov eax, 0            ; value
+	mov edi, __bss_start  ; destination
+	mov ecx, __bss_end
+	sub ecx, edi          ; byte count
+	shr ecx, 2            ; convert to dword count
+	rep stosd             ; zero and repeat
+
 	mov esp, kernel_stack + KERNEL_STACK_SIZE   ; point esp to the start of the
                                                     ; stack (end of memory area)
 	call crtc_read_fb_cell
@@ -92,10 +102,10 @@ crtc_read_fb_cell:
 	ret
 
 ; routine for pmio to crtc
+; preconditions:
+;  al has register to latch
+;  bl has data to write
 crtc_write:
-	; expects:
-	;  al has register to latch
-	;  bl has data to write
 	push edx
 	mov dx, VGA_CRTC_IDX_PORT
 	out dx, al                 ; latch register
