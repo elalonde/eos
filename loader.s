@@ -13,20 +13,20 @@ KERNEL_STACK_SIZE equ 4096      ; size of stack in bytes
 
 section .bss
 	align 4                 ; align at 4 bytes
-kernel_stack:                   ; label points to beginning of memory
+kernel_stack:
 	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
 
 section .data
 	msg db "Hello, Eric."
 	msg_len equ  $-msg
 
-section .text                   ; start of the text (code) section
+section .text
 	align 4                 ; the code must be 4 byte aligned
 	dd MAGIC_NUMBER         ; write the magic number to the machine code,
 	dd FLAGS                ; the flags,
 	dd CHECKSUM             ; and the checksum
 
-load_eos:                       ; the entry label (defined as entry point in linker script)
+load_eos:
 	; zero out .bss region
 	cld                   ; direction
 	mov eax, 0            ; value
@@ -35,9 +35,10 @@ load_eos:                       ; the entry label (defined as entry point in lin
 	sub ecx, edi          ; byte count
 	shr ecx, 2            ; convert to dword count
 	rep stosd             ; zero and repeat
+	
+	; point esp to the start of the stack (grows down)
+	mov esp, kernel_stack + KERNEL_STACK_SIZE
 
-	mov esp, kernel_stack + KERNEL_STACK_SIZE   ; point esp to the start of the
-                                                    ; stack (end of memory area)
 	call crtc_read_fb_cell
 	mov eax, esi
 	shl eax, 1                  ; convert to byte offset
