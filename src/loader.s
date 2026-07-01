@@ -47,12 +47,8 @@ load_eos:
 
 	mov edx, msg
 	mov eax, [msg_len]
-	call printmsg
-
-	mov eax, 0
-	call printnum
-
-	call printcursor
+	call prnmsg
+	call prncursor
 
 .hang:
 	; bye bye
@@ -64,24 +60,26 @@ load_eos:
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
-printcursor:
+prncursor:
 	push esi
 
-	mov eax, esi
-	shl eax, 1                  ; convert to byte offset
 	mov al, 0x0E
 	mov ebx, esi
 	shr ebx, 8
-	call crtc_write            ; write cursor pos high bits
+	; high bits
+	call crtc_write
 	mov al, 0x0F
 	mov ebx, esi
-	call crtc_write            ; write cursor pos low bits
+	; low bits
+	call crtc_write
 	mov al, 0x0A
 	mov ebx, 0
-	call crtc_write            ; write scanline start pos
+	; scanline start
+	call crtc_write
 	mov al, 0x0B
 	mov ebx, 0x0F
-	call crtc_write            ; write scanline end pos
+	; scanline end
+	call crtc_write
 
 	pop esi
 	inc esi
@@ -90,17 +88,17 @@ printcursor:
 ; pre:
 ; - edx contains pointer to msg
 ; - eax contains msg len
-; - esi contains fb cell offset
+; - esi contains current fb cell offset
 ; post:
-; - esi is updated with new fb cell offset
-printmsg:
+; - esi contains updated fb cell offset
+prnmsg:
 	push ecx
 	push esi
 
 	; convert to byte offset
 	shl esi, 1                  ; convert to byte offset
 	mov ecx, 0
-.prnloop
+.prnloop:
 	mov bl, [edx + ecx]
 	mov [FB_MMIO_ADDR+esi+ecx*2], bl          ; write character
 	mov byte [FB_MMIO_ADDR+esi+ecx*2+1], BLACK_TEXT
@@ -112,14 +110,14 @@ printmsg:
 	add esi, ecx
 	pop ecx
 	ret
-; print a number to frame buffer
-; preconditions:
-; - eax has decimal number to print
-; - esi has the current cell offset in fb
-; postconditions:
-; - esi has updated cell offset in fb
 
-printnum:
+; prn a number to frame buffer
+; preconditions:
+; - eax has decimal number to prn
+; - esi contains current fb cell offset
+; postconditions:
+; - esi contains updated fb cell offset
+prnnum:
 	push ebx
 	push edx
 	push eax
@@ -140,14 +138,14 @@ printnum:
 	test eax, eax
 	jnz .divloop
 	mov eax, 0
-.printdigit:
+.prndigit:
 	pop ebx
 	add ebx, ASCII_OFFSET
 	mov [FB_MMIO_ADDR+esi+eax*2], bl
 	mov byte [FB_MMIO_ADDR+esi+eax*2+1], BLACK_TEXT
 	inc eax
 	dec ecx
-	jnz .printdigit
+	jnz .prndigit
 
 	pop esi
 	add esi, eax
