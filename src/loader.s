@@ -42,49 +42,72 @@ load_eos:
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
 
 	call crtc_read_fb_cell
-	mov eax, esi
-	shl eax, 1                  ; convert to byte offset
-	add eax, 160                ; pad one line
-	add esi, 80 + msg_len       ; compute placement of cursor
+	; pad a blank line
+	add esi, 80
+	;mov eax, esi
+	;shl eax, 1                  ; convert to byte offset
+	;add eax, 160                ; pad one line
+	;add esi, 80 + msg_len       ; compute placement of cursor
 
-	; print out boot message to screen
-	mov ecx, 0
-.printmsg:
-	mov bl, [msg + ecx]
-	mov [FB_MMIO_ADDR+eax+ecx*2], bl          ; write character
-	mov byte [FB_MMIO_ADDR+eax+ecx*2+1], BLACK_TEXT
-	inc ecx
-	cmp ecx, msg_len
-	jne .printmsg
+	mov edx, msg
+	mov eax, [msg_len]
+	call printmsg
+
 	mov eax, 0
 	call printnum
 
 	; print cursor
-	mov al, 0x0E
-	mov ebx, esi
-	shr ebx, 8
-	call crtc_write            ; write cursor pos high bits
-	mov al, 0x0F
-	mov ebx, esi
-	call crtc_write            ; write cursor pos low bits
-	mov al, 0x0A
-	mov ebx, 0
-	call crtc_write            ; write scanline start pos
-	mov al, 0x0B
-	mov ebx, 0x0F
-	call crtc_write            ; write scanline end pos
+;	mov al, 0x0E
+;	mov ebx, esi
+;	shr ebx, 8
+;	call crtc_write            ; write cursor pos high bits
+;	mov al, 0x0F
+;	mov ebx, esi
+;	call crtc_write            ; write cursor pos low bits
+;	mov al, 0x0A
+;	mov ebx, 0
+;	call crtc_write            ; write scanline start pos
+;	mov al, 0x0B
+;	mov ebx, 0x0F
+;	call crtc_write            ; write scanline end pos
 .hang:
 	; bye bye
 	cli
 	hlt
 	jmp .hang
 
+; pre:
+; - edx contains pointer to msg
+; - eax contains msg len
+; - esi contains fb cell offset
+; post:
+; - esi is updated with new fb cell offset
+printmsg:
+	push ecx
+	push esi
+
+	; convert to byte offset
+	shl esi, 1                  ; convert to byte offset
+	mov ecx, 0
+.prnloop
+	mov bl, [edx + ecx]
+	mov [FB_MMIO_ADDR+esi+ecx*2], bl          ; write character
+	mov byte [FB_MMIO_ADDR+esi+ecx*2+1], BLACK_TEXT
+	inc ecx
+	cmp ecx, msg_len
+	jne .prnloop
+
+	pop esi
+	add esi, ecx
+	pop ecx
+	ret
 ; print a number to frame buffer
 ; preconditions:
 ; - eax has decimal number to print
 ; - esi has the current cell offset in fb
 ; postconditions:
 ; - esi has updated cell offset in fb
+
 printnum:
 	push ebx
 	push edx
