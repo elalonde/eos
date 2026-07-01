@@ -44,10 +44,6 @@ load_eos:
 	call crtc_read_fb_cell
 	; pad a blank line
 	add esi, 80
-	;mov eax, esi
-	;shl eax, 1                  ; convert to byte offset
-	;add eax, 160                ; pad one line
-	;add esi, 80 + msg_len       ; compute placement of cursor
 
 	mov edx, msg
 	mov eax, [msg_len]
@@ -56,25 +52,40 @@ load_eos:
 	mov eax, 0
 	call printnum
 
-	; print cursor
-;	mov al, 0x0E
-;	mov ebx, esi
-;	shr ebx, 8
-;	call crtc_write            ; write cursor pos high bits
-;	mov al, 0x0F
-;	mov ebx, esi
-;	call crtc_write            ; write cursor pos low bits
-;	mov al, 0x0A
-;	mov ebx, 0
-;	call crtc_write            ; write scanline start pos
-;	mov al, 0x0B
-;	mov ebx, 0x0F
-;	call crtc_write            ; write scanline end pos
+	call printcursor
+
 .hang:
 	; bye bye
 	cli
 	hlt
 	jmp .hang
+
+; pre:
+; - esi contains current fb cell offset
+; post:
+; - esi contains updated fb cell offset
+printcursor:
+	push esi
+
+	mov eax, esi
+	shl eax, 1                  ; convert to byte offset
+	mov al, 0x0E
+	mov ebx, esi
+	shr ebx, 8
+	call crtc_write            ; write cursor pos high bits
+	mov al, 0x0F
+	mov ebx, esi
+	call crtc_write            ; write cursor pos low bits
+	mov al, 0x0A
+	mov ebx, 0
+	call crtc_write            ; write scanline start pos
+	mov al, 0x0B
+	mov ebx, 0x0F
+	call crtc_write            ; write scanline end pos
+
+	pop esi
+	inc esi
+	ret
 
 ; pre:
 ; - edx contains pointer to msg
