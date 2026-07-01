@@ -10,6 +10,8 @@ FB_MMIO_ADDR      equ 0xB8000   ; framebuffer memory addr
 VGA_CRTC_IDX_PORT equ 0x3D4     ; VGA CRTC index port
 VGA_CRTC_DAT_PORT equ 0x3D5     ; VGA CRTC data port
 KERNEL_STACK_SIZE equ 4096      ; size of stack in bytes
+ASCII_OFFSET equ 0x30
+BLACK_TEXT equ 0x07
 
 section .bss
 	align 4                 ; align at 4 bytes
@@ -50,10 +52,12 @@ load_eos:
 .printmsg:
 	mov bl, [msg + ecx]
 	mov [FB_MMIO_ADDR+eax+ecx*2], bl          ; write character
-	mov byte [FB_MMIO_ADDR+eax+ecx*2+1], 0x07 ; write color of char
+	mov byte [FB_MMIO_ADDR+eax+ecx*2+1], BLACK_TEXT
 	inc ecx
 	cmp ecx, msg_len
 	jne .printmsg
+	mov eax, 0
+	call printnum
 
 	; print cursor
 	mov al, 0x0E
@@ -69,12 +73,52 @@ load_eos:
 	mov al, 0x0B
 	mov ebx, 0x0F
 	call crtc_write            ; write scanline end pos
-
 .hang:
 	; bye bye
 	cli
 	hlt
 	jmp .hang
+
+; print a number to frame buffer
+; preconditions:
+; - eax has decimal number to print
+; - esi has the current cell offset in fb
+printnum:
+	push ebx
+	push edx
+	push eax
+	push ecx
+	push esi
+	mov ebx, 10
+	; convert cell offset to byte offset
+	shl esi, 1
+	mov ecx, 0
+	; store digits on stack
+.divloop:
+	xor edx, edx
+	; edx:eax
+	div ebx
+	; store remainder
+	push edx
+	inc ecx
+	test eax, eax
+	jnz .divloop
+	mov eax, 0
+.printdigit:
+	pop ebx
+	add ebx, ASCII_OFFSET
+	mov [FB_MMIO_ADDR+esi+eax*2], bl
+	mov byte [FB_MMIO_ADDR+esi+eax*2+1], BLACK_TEXT
+	inc eax
+	dec ecx
+	jnz .printdigit
+
+	pop esi
+	pop ecx
+	pop eax
+	pop edx
+	pop ebx
+	ret
 
 ; get crtc cell offset in fb left by bootloader
 ; postcondition: esi holds cell offset
