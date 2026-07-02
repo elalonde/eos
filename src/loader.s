@@ -12,15 +12,19 @@ VGA_CRTC_DAT_PORT equ 0x3D5     ; VGA CRTC data port
 KERNEL_STACK_SIZE equ 4096      ; size of stack in bytes
 ASCII_OFFSET equ 0x30
 BLACK_TEXT equ 0x07
+HEX_UPPER_ASCII_OFFSET equ 0x37
+HEX_LOWER_ASCII_OFFSET equ 0x30
 
 section .bss
 	align 4                 ; align at 4 bytes
 kernel_stack:
 	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
 
-section .data
+section .rodata
 	msg db "Hello, Eric."
 	msg_len equ  $-msg
+	hex_pre db "0x"
+	hex_pre_len equ $-hex_pre
 
 section .text
 	align 4                 ; the code must be 4 byte aligned
@@ -114,11 +118,63 @@ prn_msg:
 	ret
 
 ; pre:
-; - eax has decimal number to print
+; - eax has number to print
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
-prn_num:
+prn_hex:
+	push eax
+	push ebx
+	push ecx
+	push edx
+
+	; dance to print 0x (updates esi)
+	mov ebx, eax
+	mov edx, hex_pre
+	mov eax, hex_pre_len
+	call prn_msg
+	mov eax, ebx
+	; save and convert to byte offset
+	push esi
+	shl esi, 1
+
+	; bit count for nibble shift
+	mov ecx, 0x1C
+	xor edx, edx
+.prn_hex_nibble:
+	mov ebx, eax
+	shr ebx, cl
+	; mask all but lowest nibble
+	and ebx, 0x0000000F
+	cmp bl, 0x0A
+	jb .lower_offset
+	add bl, HEX_UPPER_ASCII_OFFSET
+	jmp .offset_done
+.lower_offset:
+	add bl, HEX_LOWER_ASCII_OFFSET
+.offset_done:
+	mov [FB_MMIO_ADDR+esi+edx*2], bl
+	mov byte [FB_MMIO_ADDR+esi+edx*2+1], BLACK_TEXT
+
+	inc edx
+	sub ecx, 0x04
+	cmp edx, 0x08
+	jl .prn_hex_nibble
+
+	pop esi
+	add esi, edx
+	pop edx
+	pop ecx
+	pop ebx
+	pop eax
+	ret
+
+; pre:
+; - eax has number to print
+; - esi contains current fb cell offset
+; post:
+; - esi contains updated fb cell offset
+prn_dec:
 	push ebx
 	push edx
 	push eax
