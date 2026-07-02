@@ -14,6 +14,7 @@ ASCII_OFFSET equ 0x30
 BLACK_TEXT equ 0x07
 HEX_UPPER_ASCII_OFFSET equ 0x37
 HEX_LOWER_ASCII_OFFSET equ 0x30
+LINE_LEN equ 0x50
 
 section .bss
 	align 4                 ; align at 4 bytes
@@ -21,10 +22,22 @@ kernel_stack:
 	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
 
 section .rodata
-	msg db "Hello, Eric."
-	msg_len equ  $-msg
 	hex_pre db "0x"
 	hex_pre_len equ $-hex_pre
+	welcome db "Welcome to eos."
+	welcome_len equ $-welcome
+	bl_pre db "Bootloader report:"
+	bl_pre_len equ $-bl_pre
+	lower_msg db "Lower memory: "
+	lower_len equ $-lower_msg
+	upper_msg db "Upper memory: "
+	upper_len equ $-upper_msg
+	kb_msg db " KB"
+	kb_len equ $-kb_msg
+	boot_dev_msg db "Boot device: Drive "
+	boot_dev_len equ $-boot_dev_msg
+	part_dev_msg db ", Partition "
+	part_dev_len equ $-part_dev_msg
 
 section .text
 	align 4                 ; the code must be 4 byte aligned
@@ -46,12 +59,13 @@ load_eos:
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
 
 	call crtc_read_fb_cell
-	; pad a blank line
-	add esi, 80
+	call fb_skip_ln
 
-	mov edx, msg
-	mov eax, [msg_len]
+	mov edx, welcome
+	mov eax, welcome_len
 	call prn_msg
+	call fb_skip_ln
+	call prn_bl_nfo
 	call prn_cursor
 
 .hang:
@@ -59,6 +73,86 @@ load_eos:
 	cli
 	hlt
 	jmp .hang
+
+; skip fb cell offset to next line
+; pre:
+; - esi contains current fb cell offset
+; - ecx contains number of spaces to indent on new line
+; post:
+; - esi contains updated fb cell offset
+; (skipped to next line)
+fb_skip_ln:
+	push eax
+	push ebx
+	push ecx
+	push edx
+
+	mov ebx, LINE_LEN
+	xor edx, edx
+	mov eax, esi
+	; edx:eax
+	div ebx
+	neg edx
+	add edx, ebx
+	add esi, edx
+	add esi, ecx
+
+	pop edx
+	pop ecx
+	pop ebx
+	pop eax
+	ret
+
+; pre:
+; - ebx contains addr of bl info
+; - esi contains current fb cell offset
+; post:
+; - esi contains updated fb cell offset
+prn_bl_nfo:
+	push eax
+	push edx
+
+	mov edx, bl_pre
+	mov eax, bl_pre_len
+	call prn_msg
+	mov ecx, 4
+
+	test byte [ebx], 1
+	jz .skipmem
+	; print lower
+	mov edx, lower_msg
+	mov eax, lower_len
+	call fb_skip_ln
+	call prn_msg
+	mov eax, [ebx+4]
+	call prn_dec
+	mov edx, kb_msg
+	mov eax, kb_len
+	call prn_msg
+	; print upper
+	call fb_skip_ln
+	mov edx, upper_msg
+	mov eax, upper_len
+	call prn_msg
+	mov eax, [ebx+8]
+	call prn_dec
+	mov edx, kb_msg
+	mov eax, kb_len
+	call prn_msg
+.skipmem:
+	; print boot device
+	test byte [ebx], 0x2
+	jz .skipboot
+	mov edx, boot_dev_msg
+	mov eax, boot_dev_len
+	call fb_skip_ln
+	call prn_msg
+	mov eax, [ebx+12]
+	call prn_hex
+.skipboot:
+	pop edx
+	pop eax
+	ret
 
 ; pre:
 ; - esi contains current fb cell offset
@@ -105,7 +199,7 @@ prn_msg:
 	push esi
 
 	; convert to byte offset
-	shl esi, 1                  ; convert to byte offset
+	shl esi, 1
 	mov ecx, 0
 .prn_loop:
 	mov bl, [edx + ecx]
@@ -189,7 +283,7 @@ prn_dec:
 	shl esi, 1
 	mov ecx, 0
 	; store digits on stack
-.divloop:
+.div_loop:
 	xor edx, edx
 	; edx:eax
 	div ebx
@@ -197,7 +291,7 @@ prn_dec:
 	push edx
 	inc ecx
 	test eax, eax
-	jnz .divloop
+	jnz .div_loop
 	mov eax, 0
 .prn_digit:
 	pop ebx
