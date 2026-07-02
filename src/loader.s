@@ -47,8 +47,8 @@ load_eos:
 
 	mov edx, msg
 	mov eax, [msg_len]
-	call prnmsg
-	call prncursor
+	call prn_msg
+	call prn_cursor
 
 .hang:
 	; bye bye
@@ -60,7 +60,7 @@ load_eos:
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
-prncursor:
+prn_cursor:
 	push esi
 
 	mov al, 0x0E
@@ -91,33 +91,32 @@ prncursor:
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
-prnmsg:
+prn_msg:
 	push ecx
 	push esi
 
 	; convert to byte offset
 	shl esi, 1                  ; convert to byte offset
 	mov ecx, 0
-.prnloop:
+.prn_loop:
 	mov bl, [edx + ecx]
 	mov [FB_MMIO_ADDR+esi+ecx*2], bl          ; write character
 	mov byte [FB_MMIO_ADDR+esi+ecx*2+1], BLACK_TEXT
 	inc ecx
 	cmp ecx, msg_len
-	jne .prnloop
+	jne .prn_loop
 
 	pop esi
 	add esi, ecx
 	pop ecx
 	ret
 
-; prn a number to frame buffer
-; preconditions:
-; - eax has decimal number to prn
+; pre:
+; - eax has decimal number to prn_
 ; - esi contains current fb cell offset
-; postconditions:
+; post:
 ; - esi contains updated fb cell offset
-prnnum:
+prn_num:
 	push ebx
 	push edx
 	push eax
@@ -138,14 +137,14 @@ prnnum:
 	test eax, eax
 	jnz .divloop
 	mov eax, 0
-.prndigit:
+.prn_digit:
 	pop ebx
 	add ebx, ASCII_OFFSET
 	mov [FB_MMIO_ADDR+esi+eax*2], bl
 	mov byte [FB_MMIO_ADDR+esi+eax*2+1], BLACK_TEXT
 	inc eax
 	dec ecx
-	jnz .prndigit
+	jnz .prn_digit
 
 	pop esi
 	add esi, eax
@@ -155,8 +154,7 @@ prnnum:
 	pop ebx
 	ret
 
-; get crtc cell offset in fb left by bootloader
-; postcondition: esi holds cell offset
+; post: esi contains the fb cell offset
 crtc_read_fb_cell:
 	push eax
 	push ebx
@@ -181,8 +179,7 @@ crtc_read_fb_cell:
 	pop eax
 	ret
 
-; routine for pmio to crtc
-; preconditions:
+; pre:
 ;  al has register to latch
 ;  bl has data to write
 crtc_write:
