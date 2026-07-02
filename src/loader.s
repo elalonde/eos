@@ -65,6 +65,8 @@ load_eos:
 ; post:
 ; - esi contains updated fb cell offset
 prn_cursor:
+	push eax
+	push ebx
 	push esi
 
 	mov al, 0x0E
@@ -87,6 +89,8 @@ prn_cursor:
 
 	pop esi
 	inc esi
+	pop ebx
+	pop eax
 	ret
 
 ; pre:
