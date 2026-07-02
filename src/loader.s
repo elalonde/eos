@@ -92,6 +92,7 @@ prn_cursor:
 ; post:
 ; - esi contains updated fb cell offset
 prn_msg:
+	push ebx
 	push ecx
 	push esi
 
@@ -103,16 +104,17 @@ prn_msg:
 	mov [FB_MMIO_ADDR+esi+ecx*2], bl          ; write character
 	mov byte [FB_MMIO_ADDR+esi+ecx*2+1], BLACK_TEXT
 	inc ecx
-	cmp ecx, msg_len
+	cmp ecx, eax
 	jne .prn_loop
 
 	pop esi
 	add esi, ecx
 	pop ecx
+	pop ebx
 	ret
 
 ; pre:
-; - eax has decimal number to prn_
+; - eax has decimal number to print
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
