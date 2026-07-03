@@ -180,7 +180,7 @@ prn_bl_rpt:
 	call fb_skip_ln
 	call prn_msg
 	mov eax, [ebx+12]
-	call prn_hex
+	call prn_boot_dev
 .skipboot:
 	; test flag and also for empty cmdline
 	test byte [ebx], 0x4
@@ -266,7 +266,7 @@ prn_msg:
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
-prn_hex:
+prn_boot_dev:
 	push eax
 	push ebx
 	push ecx
@@ -290,6 +290,9 @@ prn_hex:
 	shr ebx, cl
 	; mask all but lowest nibble
 	and ebx, 0x0000000F
+	; 0xF -> no more boot devices
+	cmp bl, 0xF
+	je .end
 	cmp bl, 0x0A
 	jb .lower_offset
 	add bl, HEX_UPPER_ASCII_OFFSET
@@ -305,6 +308,7 @@ prn_hex:
 	cmp edx, 0x08
 	jl .prn_hex_nibble
 
+.end:
 	pop esi
 	add esi, edx
 	pop edx
