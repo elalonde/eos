@@ -15,9 +15,11 @@ BLACK_TEXT equ 0x07
 HEX_UPPER_ASCII_OFFSET equ 0x37
 HEX_LOWER_ASCII_OFFSET equ 0x30
 LINE_LEN equ 0x50
+BL_REPORT_INDENT_LEN equ 0x4
 
 section .bss
 	align 4                 ; align at 4 bytes
+	fb_indent_len resd 1
 kernel_stack:
 	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
 
@@ -40,6 +42,22 @@ section .rodata
 	part_dev_len equ $-part_dev_msg
 	cmdline_msg db "cmdline: "
 	cmdline_msg_len equ $-cmdline_msg
+	modules_msg db "Loaded module count: "
+	modules_msg_len equ $-modules_msg
+	elf_sect_msg db "ELF section information: "
+	elf_sect_len equ $-elf_sect_msg
+	elf_h_cnt_msg db "ELF header count: "
+	elf_h_cnt_msg_len equ $-elf_h_cnt_msg
+	elf_sect_entry_siz_msg db "ELF section header entry size: "
+	elf_sect_entry_siz_msg_len equ $-elf_sect_entry_siz_msg
+	elf_sect_table_addr_msg db "ELF section header table addr: "
+	elf_sect_table_addr_msg_len equ $-elf_sect_table_addr_msg
+	elf_sect_table_str_idx_msg db "ELF section header string table index: "
+	elf_sect_table_str_idx_msg_len equ $-elf_sect_table_str_idx_msg
+	elf_sect_table_mmap_msg db "Memory map length: "
+	elf_sect_table_mmap_msg_len equ $-elf_sect_table_mmap_msg
+	bytes_msg db " bytes"
+	bytes_msg_len equ $-bytes_msg
 
 section .text
 	align 4                 ; the code must be 4 byte aligned
@@ -79,14 +97,12 @@ load_eos:
 ; skip fb cell offset to next line
 ; pre:
 ; - esi contains current fb cell offset
-; - ecx contains number of spaces to indent on new line
+; - fb_indent_len contains number of spaces to indent on new line
 ; post:
 ; - esi contains updated fb cell offset
-; (skipped to next line)
 fb_skip_ln:
 	push eax
 	push ebx
-	push ecx
 	push edx
 
 	mov ebx, LINE_LEN
@@ -97,10 +113,9 @@ fb_skip_ln:
 	neg edx
 	add edx, ebx
 	add esi, edx
-	add esi, ecx
+	add esi, [fb_indent_len]
 
 	pop edx
-	pop ecx
 	pop ebx
 	pop eax
 	ret
@@ -145,6 +160,7 @@ prn_bl_rpt:
 	push ecx
 	push edx
 
+	mov dword [fb_indent_len], BL_REPORT_INDENT_LEN
 	mov edx, bl_pre
 	mov eax, bl_pre_len
 	call prn_msg
@@ -171,18 +187,20 @@ prn_bl_rpt:
 	mov edx, kb_msg
 	mov eax, kb_len
 	call prn_msg
+	call fb_skip_ln
 .skipmem:
 	; boot device
 	test byte [ebx], 0x2
 	jz .skipboot
 	mov edx, boot_dev_msg
 	mov eax, boot_dev_len
-	call fb_skip_ln
 	call prn_msg
 	mov eax, [ebx+12]
 	call prn_boot_dev
+	call fb_skip_ln
 .skipboot:
-	; test flag and also for empty cmdline
+	; cmdline
+	; test flag and also for empty string
 	test byte [ebx], 0x4
 	jz .skipcmdline
 	mov eax, [ebx+16]
@@ -194,9 +212,80 @@ prn_bl_rpt:
 	call prn_msg
 	mov eax, [ebx+16]
 	call prn_cstr
+	call fb_skip_ln
 .skipcmdline:
+	; loaded modules
+	test byte [ebx], 0x8
+	jz .skipmodules
+	mov edx, modules_msg
+	mov eax, modules_msg_len
+	call prn_msg
+	mov eax, [ebx+20]
+	call prn_dec
+	call fb_skip_ln
+	test al, al
+	jz .skipmodules
+.skipmodules:
+	; todo: test 0x16 for a.out sections
+	test byte [ebx], 0x32
+	jz .skip_elf_sects
+	call prn_elf_sects
+	call fb_skip_ln
+.skip_elf_sects:
+	test byte [ebx], 0x64
+	jz .skip_mmap_sects
+	mov edx, elf_sect_table_mmap_msg
+	mov eax, elf_sect_table_mmap_msg_len
+	call prn_msg
+	mov eax, [ebx+44]
+	mov edx, bytes_msg
+	mov eax, bytes_msg_len
+	call prn_dec
+	call fb_skip_ln
+.skip_mmap_sects:
+	mov dword [fb_indent_len], 0
 	pop edx
 	pop ecx
+	pop eax
+	ret
+
+; pre:
+; - esi contains current fb cell offset
+; - ebx contains bootloader report table
+; post:
+; - esi contains updated fb cell offset
+prn_elf_sects:
+	push eax
+	push edx
+
+	mov edx, elf_h_cnt_msg
+	mov eax, elf_h_cnt_msg_len
+	call prn_msg
+	mov eax, [ebx+28]
+	call prn_dec
+	call fb_skip_ln
+
+	mov edx, elf_sect_entry_siz_msg
+	mov eax, elf_sect_entry_siz_msg_len
+	call prn_msg
+	mov eax, [ebx+32]
+	call prn_dec
+	call fb_skip_ln
+
+	mov edx, elf_sect_table_addr_msg
+	mov eax, elf_sect_table_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+36]
+	call prn_hex
+	call fb_skip_ln
+
+	mov edx, elf_sect_table_str_idx_msg
+	mov eax, elf_sect_table_str_idx_msg_len
+	call prn_msg
+	mov eax, [ebx+40]
+	call prn_hex
+
+	pop edx
 	pop eax
 	ret
 
@@ -261,6 +350,58 @@ prn_msg:
 	pop ebx
 	ret
 
+; pre:
+; - eax has number to print
+; - esi contains current fb cell offset
+; post:
+; - esi contains updated fb cell offset
+prn_hex:
+	push eax
+	push ebx
+	push ecx
+	push edx
+
+	; dance to print 0x (updates esi)
+	mov ebx, eax
+	mov edx, hex_pre
+	mov eax, hex_pre_len
+	call prn_msg
+	mov eax, ebx
+	; save and convert to byte offset
+	push esi
+	shl esi, 1
+
+	; bit count for nibble shift
+	mov ecx, 0x1C
+	xor edx, edx
+.prn_hex_nibble:
+	mov ebx, eax
+	shr ebx, cl
+	; mask all but lowest nibble
+	and ebx, 0x0000000F
+	cmp bl, 0x0A
+	jb .lower_offset
+	add bl, HEX_UPPER_ASCII_OFFSET
+	jmp .offset_done
+.lower_offset:
+	add bl, HEX_LOWER_ASCII_OFFSET
+.offset_done:
+	mov [FB_MMIO_ADDR+esi+edx*2], bl
+	mov byte [FB_MMIO_ADDR+esi+edx*2+1], BLACK_TEXT
+
+	inc edx
+	sub ecx, 0x04
+	cmp edx, 0x08
+	jl .prn_hex_nibble
+
+.end:
+	pop esi
+	add esi, edx
+	pop edx
+	pop ecx
+	pop ebx
+	pop eax
+	ret
 ; pre:
 ; - eax has number to print
 ; - esi contains current fb cell offset
