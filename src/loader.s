@@ -38,6 +38,8 @@ section .rodata
 	boot_dev_len equ $-boot_dev_msg
 	part_dev_msg db ", Partition "
 	part_dev_len equ $-part_dev_msg
+	cmdline_msg db "cmdline: "
+	cmdline_msg_len equ $-cmdline_msg
 
 section .text
 	align 4                 ; the code must be 4 byte aligned
@@ -65,7 +67,7 @@ load_eos:
 	mov eax, welcome_len
 	call prn_msg
 	call fb_skip_ln
-	call prn_bl_nfo
+	call prn_bl_rpt
 	call prn_cursor
 
 .hang:
@@ -104,22 +106,52 @@ fb_skip_ln:
 	ret
 
 ; pre:
+; - eax contains pointer to c string
+; - esi contains current fb cell offset
+; post:
+; - esi contains updated fb cell offset
+prn_cstr:
+	push eax
+	push ebx
+	push ecx
+	push esi
+
+	; byte offset
+	shl esi, 1
+	xor ecx, ecx
+.prn_loop:
+	mov bl, [eax+ecx]
+	test bl, bl
+	jz .end
+	mov [FB_MMIO_ADDR+esi+ecx*2], bl
+	mov byte [FB_MMIO_ADDR+esi+ecx*2+1], BLACK_TEXT
+	inc ecx
+	jmp .prn_loop
+.end:
+	pop esi
+	add esi, ecx
+	pop ecx
+	pop ebx
+	pop eax
+	ret
+
+; pre:
 ; - ebx contains addr of bl info
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
-prn_bl_nfo:
+prn_bl_rpt:
 	push eax
+	push ecx
 	push edx
 
 	mov edx, bl_pre
 	mov eax, bl_pre_len
 	call prn_msg
-	mov ecx, 4
 
 	test byte [ebx], 1
 	jz .skipmem
-	; print lower
+	; lower mem
 	mov edx, lower_msg
 	mov eax, lower_len
 	call fb_skip_ln
@@ -129,7 +161,7 @@ prn_bl_nfo:
 	mov edx, kb_msg
 	mov eax, kb_len
 	call prn_msg
-	; print upper
+	; upper mem
 	call fb_skip_ln
 	mov edx, upper_msg
 	mov eax, upper_len
@@ -140,7 +172,7 @@ prn_bl_nfo:
 	mov eax, kb_len
 	call prn_msg
 .skipmem:
-	; print boot device
+	; boot device
 	test byte [ebx], 0x2
 	jz .skipboot
 	mov edx, boot_dev_msg
@@ -150,7 +182,21 @@ prn_bl_nfo:
 	mov eax, [ebx+12]
 	call prn_hex
 .skipboot:
+	; test flag and also for empty cmdline
+	test byte [ebx], 0x4
+	jz .skipcmdline
+	mov eax, [ebx+16]
+	mov ecx, [eax]
+	test cl, cl
+	jz .skipcmdline
+	mov edx, cmdline_msg
+	mov eax, cmdline_msg_len
+	call prn_msg
+	mov eax, [ebx+16]
+	call prn_cstr
+.skipcmdline:
 	pop edx
+	pop ecx
 	pop eax
 	ret
 
