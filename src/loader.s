@@ -38,8 +38,12 @@ section .rodata
 	kb_len equ $-kb_msg
 	boot_dev_msg db "Boot device: Drive "
 	boot_dev_len equ $-boot_dev_msg
-	part_dev_msg db ", Partition "
-	part_dev_len equ $-part_dev_msg
+	paren_open_msg db " ( "
+	paren_open_msg_len equ $-paren_open_msg
+	paren_close_msg db ")"
+	paren_close_msg_len equ $-paren_open_msg_len
+	period_msg db "."
+	period_msg_len equ $-period_msg
 	cmdline_msg db "cmdline: "
 	cmdline_msg_len equ $-cmdline_msg
 	modules_msg db "Loaded module count: "
@@ -196,7 +200,7 @@ prn_bl_rpt:
 	mov eax, boot_dev_len
 	call prn_msg
 	mov eax, [ebx+12]
-	call prn_boot_dev
+	call prn_boot_dev_nfo
 	call fb_skip_ln
 .skipboot:
 	; cmdline
@@ -386,10 +390,32 @@ byte_to_hex:
 .upper_done:
 	mov dh, dl
 	mov dl, al
-
-.done
 	pop ecx
 	pop eax
+	ret
+
+; print a byte which grew into 16 bits as a result
+; of conversion to ascii hex representation
+; pre:
+; - dx contains the 16 bit word to print
+; - esi contains current fb cell offset
+; post:
+; - esi contains updated fb cell offset
+prn_hex_byte:
+	push esi
+
+	; byte offset
+	shl esi, 1
+
+	mov [FB_MMIO_ADDR+esi], dh
+	mov byte [FB_MMIO_ADDR+esi+1], BLACK_TEXT
+
+	mov [FB_MMIO_ADDR+esi+2], dl
+	mov byte [FB_MMIO_ADDR+esi+3], BLACK_TEXT
+
+	; cell offset
+	pop esi
+	add esi, 2
 	ret
 
 ; pre:
@@ -408,38 +434,26 @@ prn_hex:
 	mov edx, hex_pre
 	mov eax, hex_pre_len
 	call prn_msg
-	; save and convert to byte offset
-	push esi
-	shl esi, 1
-
 	mov eax, ebx
-	xor ebx, ebx
-.prn_byte:
+
 	mov ecx, 3
-	sub ecx, ebx
+.prn_byte:
 	call byte_to_hex
-	mov [FB_MMIO_ADDR+esi+ebx*4], dh
-	mov byte [FB_MMIO_ADDR+esi+ebx*4+1], BLACK_TEXT
-	mov [FB_MMIO_ADDR+esi+ebx*4+2], dl
-	mov byte [FB_MMIO_ADDR+esi+ebx*4+3], BLACK_TEXT
-	test ecx, ecx
-	jz .end
-	inc bl
-	jmp .prn_byte
-.end:
-	pop esi
-	add esi, 8
+	call prn_hex_byte
+	dec ecx
+	jns .prn_byte
+
 	pop edx
 	pop ecx
 	pop ebx
 	pop eax
 	ret
 ; pre:
-; - eax has number to print
 ; - esi contains current fb cell offset
+; - eax contains boot device information
 ; post:
 ; - esi contains updated fb cell offset
-prn_boot_dev:
+prn_boot_dev_nfo:
 	push eax
 	push ebx
 	push ecx
@@ -455,35 +469,56 @@ prn_boot_dev:
 	push esi
 	shl esi, 1
 
-	; bit count for nibble shift
-	mov ecx, 0x1C
-	xor edx, edx
-.prn_hex_nibble:
-	mov ebx, eax
-	shr ebx, cl
-	; mask all but lowest nibble
-	and ebx, 0x0000000F
-	; 0xF -> no more boot devices
-	cmp bl, 0xF
-	je .end
-	cmp bl, 0x0A
-	jb .lower_offset
-	add bl, HEX_GT_TEN_ASCII_OFFSET
-	jmp .offset_done
-.lower_offset:
-	add bl, HEX_LT_TEN_ASCII_OFFSET
-.offset_done:
-	mov [FB_MMIO_ADDR+esi+edx*2], bl
-	mov byte [FB_MMIO_ADDR+esi+edx*2+1], BLACK_TEXT
-
-	inc edx
-	sub ecx, 0x04
-	cmp edx, 0x08
-	jl .prn_hex_nibble
-
-.end:
+	; print boot device
+	mov eax, ebx
+	mov ecx, 3
+	call byte_to_hex
+	; make prn_byte a subroutine
+	mov [FB_MMIO_ADDR+esi], dh
+	mov byte [FB_MMIO_ADDR+esi+1], BLACK_TEXT
+	mov [FB_MMIO_ADDR+esi+2], dl
+	mov byte [FB_MMIO_ADDR+esi+3], BLACK_TEXT
+	xor ebx, ebx
 	pop esi
-	add esi, edx
+	add esi, 2
+
+.prn_partitions:
+	mov ecx, 2
+	sub ecx, ebx
+	call byte_to_hex
+	cmp dx, 0x6666 ; 0xFF
+	je .partitions_done
+	push eax
+	push edx
+	cmp ebx, 0
+	jne .prn_period
+	mov edx, paren_open_msg
+	mov eax, paren_open_msg_len
+	call prn_msg
+	jmp .skip_formatting
+.prn_period:
+	mov edx, period_msg
+	mov eax, period_msg_len
+	call prn_msg
+.skip_formatting:
+	pop edx
+	pop eax
+	mov [FB_MMIO_ADDR+esi+ebx*4], dl
+	mov byte [FB_MMIO_ADDR+esi+ebx*4+1], BLACK_TEXT
+	cmp ebx, 2
+	je .partitions_done
+	inc ebx
+	jmp .prn_partitions
+.partitions_done:
+	test bl, bl
+	jz .skip_close_paren
+	mov edx, paren_close_msg
+	mov eax, paren_close_msg_len
+	call prn_msg
+.skip_close_paren:
+	pop esi
+	add esi, 2
+	add esi, ebx
 	pop edx
 	pop ecx
 	pop ebx
