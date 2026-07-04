@@ -155,8 +155,9 @@ prn_bl_rpt:
 	mov eax, bl_pre_len
 	call prn_msg
 
-	test byte [ebx], 1
+	test byte [ebx], 0x1
 	jz .skipmem
+	call fb_skip_ln
 	; lower mem
 	mov edx, lower_msg
 	mov eax, lower_len
@@ -177,17 +178,16 @@ prn_bl_rpt:
 	mov edx, kb_msg
 	mov eax, kb_len
 	call prn_msg
-	call fb_skip_ln
 .skipmem:
 	; boot device
 	test byte [ebx], 0x2
 	jz .skipboot
+	call fb_skip_ln
 	mov edx, boot_dev_msg
 	mov eax, boot_dev_len
 	call prn_msg
 	mov eax, [ebx+12]
 	call prn_boot_dev_nfo
-	call fb_skip_ln
 .skipboot:
 	; cmdline
 	; test flag and also for empty string
@@ -196,32 +196,32 @@ prn_bl_rpt:
 	mov  eax, [ebx+16]
 	cmp byte [eax], 0
 	jz .skipcmdline
+	call fb_skip_ln
 	mov edx, cmdline_msg
 	mov eax, cmdline_msg_len
 	call prn_msg
 	mov eax, [ebx+16]
 	call prn_cstr
-	call fb_skip_ln
 .skipcmdline:
 	; loaded modules
 	test byte [ebx], 0x8
 	jz .skipmodules
+	call fb_skip_ln
 	mov edx, modules_msg
 	mov eax, modules_msg_len
 	call prn_msg
 	mov eax, [ebx+20]
 	call prn_dec
-	call fb_skip_ln
 	test al, al
 	jz .skipmodules
 .skipmodules:
 	test byte [ebx], 0x20
 	jz .skip_elf_sects
 	call prn_elf_sects
-	call fb_skip_ln
 .skip_elf_sects:
 	test byte [ebx], 0x40
 	jz .skip_mmap_sects
+	call fb_skip_ln
 	mov edx, elf_sect_table_mmap_msg
 	mov eax, elf_sect_table_mmap_msg_len
 	call prn_msg
