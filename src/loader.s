@@ -10,7 +10,6 @@ FB_MMIO_ADDR      equ 0xB8000   ; framebuffer memory addr
 VGA_CRTC_IDX_PORT equ 0x3D4     ; VGA CRTC index port
 VGA_CRTC_DAT_PORT equ 0x3D5     ; VGA CRTC data port
 KERNEL_STACK_SIZE equ 4096      ; size of stack in bytes
-ASCII_OFFSET equ 0x30
 BLACK_TEXT equ 0x07
 HEX_GT_TEN_ASCII_OFFSET equ 0x37
 HEX_LT_TEN_ASCII_OFFSET equ 0x30
@@ -531,16 +530,13 @@ prn_boot_dev_nfo:
 ; post:
 ; - esi contains updated fb cell offset
 prn_dec:
-	push ebx
-	push edx
 	push eax
+	push ebx
 	push ecx
-	push esi
+	push edx
+
 	mov ebx, 10
-	; convert cell offset to byte offset
-	shl esi, 1
-	mov ecx, 0
-	; store digits on stack
+	xor ecx, ecx
 .div_loop:
 	xor edx, edx
 	; edx:eax
@@ -550,22 +546,17 @@ prn_dec:
 	inc ecx
 	test eax, eax
 	jnz .div_loop
-	mov eax, 0
-.prn_digit:
-	pop ebx
-	add ebx, ASCII_OFFSET
-	mov [FB_MMIO_ADDR+esi+eax*2], bl
-	mov byte [FB_MMIO_ADDR+esi+eax*2+1], BLACK_TEXT
-	inc eax
-	dec ecx
-	jnz .prn_digit
-
-	pop esi
-	add esi, eax
-	pop ecx
-	pop eax
+.prn_digit_loop:
 	pop edx
+	add dl, '0'
+	call prn_byte
+	dec ecx
+	jnz .prn_digit_loop
+
+	pop edx
+	pop ecx
 	pop ebx
+	pop eax
 	ret
 
 ; post: esi contains the fb cell offset
