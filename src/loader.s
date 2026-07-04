@@ -12,8 +12,8 @@ VGA_CRTC_DAT_PORT equ 0x3D5     ; VGA CRTC data port
 KERNEL_STACK_SIZE equ 4096      ; size of stack in bytes
 ASCII_OFFSET equ 0x30
 BLACK_TEXT equ 0x07
-HEX_UPPER_ASCII_OFFSET equ 0x37
-HEX_LOWER_ASCII_OFFSET equ 0x30
+HEX_GT_TEN_ASCII_OFFSET equ 0x37
+HEX_LT_TEN_ASCII_OFFSET equ 0x30
 LINE_LEN equ 0x50
 BL_REPORT_INDENT_LEN equ 0x4
 
@@ -350,6 +350,45 @@ prn_msg:
 	pop ebx
 	ret
 
+; pre
+; - eax contains byte to convert
+; - ecx is byte index of interest in eax
+; post:
+; - lowest 2 bytes in edx contains the hex representation
+byte_to_hex:
+	push eax
+	push ecx
+
+	; byte index to shift length
+	shl ecx, 3
+	; move to index 0
+	shr eax, cl
+
+	xor edx, edx
+	mov dl, al
+	shr dl, 4
+
+	and eax, 0x0000000F
+	cmp al, 0xA
+	jb .lower_lt_ten
+	add al, HEX_GT_TEN_ASCII_OFFSET
+	jmp .lower_done
+.lower_lt_ten:
+	add al, HEX_LT_TEN_ASCII_OFFSET
+.lower_done:
+	cmp dl, 0xA
+	jb .upper_lt_ten
+	add dl, HEX_GT_TEN_ASCII_OFFSET
+	jmp .upper_done
+.upper_lt_ten:
+	add dl, HEX_LT_TEN_ASCII_OFFSET
+.upper_done:
+	mov dh, al
+
+	pop ecx
+	pop eax
+	ret
+
 ; pre:
 ; - eax has number to print
 ; - esi contains current fb cell offset
@@ -381,10 +420,10 @@ prn_hex:
 	and ebx, 0x0000000F
 	cmp bl, 0x0A
 	jb .lower_offset
-	add bl, HEX_UPPER_ASCII_OFFSET
+	add bl, HEX_GT_TEN_ASCII_OFFSET
 	jmp .offset_done
 .lower_offset:
-	add bl, HEX_LOWER_ASCII_OFFSET
+	add bl, HEX_LT_TEN_ASCII_OFFSET
 .offset_done:
 	mov [FB_MMIO_ADDR+esi+edx*2], bl
 	mov byte [FB_MMIO_ADDR+esi+edx*2+1], BLACK_TEXT
@@ -436,10 +475,10 @@ prn_boot_dev:
 	je .end
 	cmp bl, 0x0A
 	jb .lower_offset
-	add bl, HEX_UPPER_ASCII_OFFSET
+	add bl, HEX_GT_TEN_ASCII_OFFSET
 	jmp .offset_done
 .lower_offset:
-	add bl, HEX_LOWER_ASCII_OFFSET
+	add bl, HEX_LT_TEN_ASCII_OFFSET
 .offset_done:
 	mov [FB_MMIO_ADDR+esi+edx*2], bl
 	mov byte [FB_MMIO_ADDR+esi+edx*2+1], BLACK_TEXT
