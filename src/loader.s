@@ -37,12 +37,6 @@ section .rodata
 	kb_len equ $-kb_msg
 	boot_dev_msg db "Boot device: Drive "
 	boot_dev_len equ $-boot_dev_msg
-	paren_open_msg db " ( "
-	paren_open_msg_len equ $-paren_open_msg
-	paren_close_msg db ")"
-	paren_close_msg_len equ $-paren_open_msg_len
-	period_msg db "."
-	period_msg_len equ $-period_msg
 	cmdline_msg db "cmdline: "
 	cmdline_msg_len equ $-cmdline_msg
 	modules_msg db "Loaded module count: "
@@ -495,18 +489,16 @@ prn_boot_dev_nfo:
 	push edx
 	cmp ecx, 2
 	jne .prn_period
-	push eax
-	mov edx, paren_open_msg
-	mov eax, paren_open_msg_len
-	call prn_msg
-	pop eax
+	push edx
+	mov dl, '('
+	call prn_byte
+	pop edx
 	jmp .prn_partition
 .prn_period:
-	push eax
-	mov edx, period_msg
-	mov eax, period_msg_len
-	call prn_msg
-	pop eax
+	push edx
+	mov dl, '.'
+	call prn_byte
+	pop edx
 .prn_partition:
 	pop edx
 	call prn_byte
@@ -516,11 +508,8 @@ prn_boot_dev_nfo:
 	; iff sentinel encountered on first iteration
 	cmp ecx, 2
 	je .skip_close_paren
-	push eax
-	mov edx, paren_close_msg
-	mov eax, paren_close_msg_len
-	call prn_msg
-	pop eax
+	mov dl , ')'
+	call prn_byte
 .skip_close_paren:
 	pop edx
 	pop ecx
