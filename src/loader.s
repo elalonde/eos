@@ -84,8 +84,8 @@ load_eos:
 	mov edx, welcome
 	mov eax, welcome_len
 	call prn_msg
-	call fb_skip_ln
-	call prn_bl_rpt
+	mov eax, 0xdeadbeef
+	call prn_hex
 	call prn_cursor
 
 .hang:
@@ -366,6 +366,7 @@ byte_to_hex:
 
 	xor edx, edx
 	mov dl, al
+	; high nibble
 	shr dl, 4
 
 	and eax, 0x0000000F
@@ -383,8 +384,10 @@ byte_to_hex:
 .upper_lt_ten:
 	add dl, HEX_LT_TEN_ASCII_OFFSET
 .upper_done:
-	mov dh, al
+	mov dh, dl
+	mov dl, al
 
+.done
 	pop ecx
 	pop eax
 	ret
@@ -405,37 +408,27 @@ prn_hex:
 	mov edx, hex_pre
 	mov eax, hex_pre_len
 	call prn_msg
-	mov eax, ebx
 	; save and convert to byte offset
 	push esi
 	shl esi, 1
 
-	; bit count for nibble shift
-	mov ecx, 0x1C
-	xor edx, edx
-.prn_hex_nibble:
-	mov ebx, eax
-	shr ebx, cl
-	; mask all but lowest nibble
-	and ebx, 0x0000000F
-	cmp bl, 0x0A
-	jb .lower_offset
-	add bl, HEX_GT_TEN_ASCII_OFFSET
-	jmp .offset_done
-.lower_offset:
-	add bl, HEX_LT_TEN_ASCII_OFFSET
-.offset_done:
-	mov [FB_MMIO_ADDR+esi+edx*2], bl
-	mov byte [FB_MMIO_ADDR+esi+edx*2+1], BLACK_TEXT
-
-	inc edx
-	sub ecx, 0x04
-	cmp edx, 0x08
-	jl .prn_hex_nibble
-
+	mov eax, ebx
+	xor ebx, ebx
+.prn_byte:
+	mov ecx, 3
+	sub ecx, ebx
+	call byte_to_hex
+	mov [FB_MMIO_ADDR+esi+ebx*4], dh
+	mov byte [FB_MMIO_ADDR+esi+ebx*4+1], BLACK_TEXT
+	mov [FB_MMIO_ADDR+esi+ebx*4+2], dl
+	mov byte [FB_MMIO_ADDR+esi+ebx*4+3], BLACK_TEXT
+	test ecx, ecx
+	jz .end
+	inc bl
+	jmp .prn_byte
 .end:
 	pop esi
-	add esi, edx
+	add esi, 8
 	pop edx
 	pop ecx
 	pop ebx
@@ -498,7 +491,7 @@ prn_boot_dev:
 	ret
 
 ; pre:
-; - eax has number to print
+; - eax is number to print
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
