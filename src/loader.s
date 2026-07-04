@@ -81,8 +81,7 @@ load_eos:
 	mov edx, welcome
 	mov eax, welcome_len
 	call prn_msg
-	mov eax, 0xdeadbeef
-	call prn_hex_num
+	call prn_bl_rpt
 	call prn_cursor
 
 .hang:
@@ -223,7 +222,6 @@ prn_bl_rpt:
 	test al, al
 	jz .skipmodules
 .skipmodules:
-	; todo: test 0x16 for a.out sections
 	test byte [ebx], 0x32
 	jz .skip_elf_sects
 	call prn_elf_sects
@@ -235,10 +233,10 @@ prn_bl_rpt:
 	mov eax, elf_sect_table_mmap_msg_len
 	call prn_msg
 	mov eax, [ebx+44]
+	call prn_dec
 	mov edx, bytes_msg
 	mov eax, bytes_msg_len
-	call prn_dec
-	call fb_skip_ln
+	call prn_msg
 .skip_mmap_sects:
 	mov dword [fb_indent_len], 0
 	pop edx
@@ -409,21 +407,19 @@ prn_byte:
 	inc esi
 	ret
 
-; print a byte which grew into 16 bits as a result
-; of conversion to ascii hex representation
+; print a byte that was converted to ascii and stored in dx
 ; pre:
 ; - dx contains the 16 bit word to print
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
 prn_hex_byte:
-	; print dh
+	; high bits first
 	push edx
 	mov dl, dh
 	call prn_byte
-	pop edx
 
-	; print dl
+	pop edx
 	call prn_byte
 
 	ret
@@ -483,32 +479,31 @@ prn_boot_dev_nfo:
 
 	mov ecx, 2
 .prn_partitions_loop:
+	; convert partition to hex
 	call byte_to_hex
 	cmp dx, 0x6666 ; 0xFF
 	je .loop_done
 	push edx
 	cmp ecx, 2
 	jne .prn_period
-	push edx
+	mov dl, ' '
+	call prn_byte
 	mov dl, '('
 	call prn_byte
-	pop edx
 	jmp .prn_partition
 .prn_period:
-	push edx
 	mov dl, '.'
 	call prn_byte
-	pop edx
 .prn_partition:
 	pop edx
-	call prn_byte
+	call prn_hex_byte
 	dec ecx
 	jns .prn_partitions_loop
 .loop_done:
 	; iff sentinel encountered on first iteration
 	cmp ecx, 2
 	je .skip_close_paren
-	mov dl , ')'
+	mov dl, ')'
 	call prn_byte
 .skip_close_paren:
 	pop edx
