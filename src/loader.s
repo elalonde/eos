@@ -89,7 +89,7 @@ load_eos:
 	mov eax, welcome_len
 	call prn_msg
 	mov eax, 0xdeadbeef
-	call prn_hex
+	call prn_hex_num
 	call prn_cursor
 
 .hang:
@@ -280,14 +280,14 @@ prn_elf_sects:
 	mov eax, elf_sect_table_addr_msg_len
 	call prn_msg
 	mov eax, [ebx+36]
-	call prn_hex
+	call prn_hex_num
 	call fb_skip_ln
 
 	mov edx, elf_sect_table_str_idx_msg
 	mov eax, elf_sect_table_str_idx_msg_len
 	call prn_msg
 	mov eax, [ebx+40]
-	call prn_hex
+	call prn_hex_num
 
 	pop edx
 	pop eax
@@ -394,6 +394,24 @@ byte_to_hex:
 	pop eax
 	ret
 
+; - dl contains the byte to print
+; - esi contains current fb cell offset
+; post:
+; - esi contains updated fb cell offset
+prn_byte:
+	push esi
+
+	; byte offset
+	shl esi, 1
+
+	mov [FB_MMIO_ADDR+esi], dl
+	mov byte [FB_MMIO_ADDR+esi+1], BLACK_TEXT
+
+	; cell offset
+	pop esi
+	inc esi
+	ret
+
 ; print a byte which grew into 16 bits as a result
 ; of conversion to ascii hex representation
 ; pre:
@@ -402,20 +420,15 @@ byte_to_hex:
 ; post:
 ; - esi contains updated fb cell offset
 prn_hex_byte:
-	push esi
+	; print dh
+	push edx
+	mov dl, dh
+	call prn_byte
+	pop edx
 
-	; byte offset
-	shl esi, 1
+	; print dl
+	call prn_byte
 
-	mov [FB_MMIO_ADDR+esi], dh
-	mov byte [FB_MMIO_ADDR+esi+1], BLACK_TEXT
-
-	mov [FB_MMIO_ADDR+esi+2], dl
-	mov byte [FB_MMIO_ADDR+esi+3], BLACK_TEXT
-
-	; cell offset
-	pop esi
-	add esi, 2
 	ret
 
 ; pre:
@@ -423,7 +436,7 @@ prn_hex_byte:
 ; - esi contains current fb cell offset
 ; post:
 ; - esi contains updated fb cell offset
-prn_hex:
+prn_hex_num:
 	push eax
 	push ebx
 	push ecx
@@ -437,11 +450,11 @@ prn_hex:
 	mov eax, ebx
 
 	mov ecx, 3
-.prn_byte:
+.prn_byte_loop:
 	call byte_to_hex
 	call prn_hex_byte
 	dec ecx
-	jns .prn_byte
+	jns .prn_byte_loop
 
 	pop edx
 	pop ecx
@@ -465,60 +478,47 @@ prn_boot_dev_nfo:
 	mov eax, hex_pre_len
 	call prn_msg
 	mov eax, ebx
-	; save and convert to byte offset
-	push esi
-	shl esi, 1
 
 	; print boot device
-	mov eax, ebx
 	mov ecx, 3
 	call byte_to_hex
-	; make prn_byte a subroutine
-	mov [FB_MMIO_ADDR+esi], dh
-	mov byte [FB_MMIO_ADDR+esi+1], BLACK_TEXT
-	mov [FB_MMIO_ADDR+esi+2], dl
-	mov byte [FB_MMIO_ADDR+esi+3], BLACK_TEXT
-	xor ebx, ebx
-	pop esi
-	add esi, 2
+	call prn_hex_byte
 
-.prn_partitions:
 	mov ecx, 2
-	sub ecx, ebx
+.prn_partitions_loop:
 	call byte_to_hex
 	cmp dx, 0x6666 ; 0xFF
-	je .partitions_done
-	push eax
+	je .loop_done
 	push edx
-	cmp ebx, 0
+	cmp ecx, 2
 	jne .prn_period
+	push eax
 	mov edx, paren_open_msg
 	mov eax, paren_open_msg_len
 	call prn_msg
-	jmp .skip_formatting
+	pop eax
+	jmp .prn_partition
 .prn_period:
+	push eax
 	mov edx, period_msg
 	mov eax, period_msg_len
 	call prn_msg
-.skip_formatting:
-	pop edx
 	pop eax
-	mov [FB_MMIO_ADDR+esi+ebx*4], dl
-	mov byte [FB_MMIO_ADDR+esi+ebx*4+1], BLACK_TEXT
-	cmp ebx, 2
-	je .partitions_done
-	inc ebx
-	jmp .prn_partitions
-.partitions_done:
-	test bl, bl
-	jz .skip_close_paren
+.prn_partition:
+	pop edx
+	call prn_byte
+	dec ecx
+	jns .prn_partitions_loop
+.loop_done:
+	; iff sentinel encountered on first iteration
+	cmp ecx, 2
+	je .skip_close_paren
+	push eax
 	mov edx, paren_close_msg
 	mov eax, paren_close_msg_len
 	call prn_msg
+	pop eax
 .skip_close_paren:
-	pop esi
-	add esi, 2
-	add esi, ebx
 	pop edx
 	pop ecx
 	pop ebx
