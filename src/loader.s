@@ -332,25 +332,29 @@ prn_cursor:
 ; post:
 ; - esi contains updated fb cell offset
 prn_msg:
+	push eax
 	push ebx
 	push ecx
-	push esi
+	push edx
 
-	; convert to byte offset
-	shl esi, 1
-	mov ecx, 0
+	test eax, eax
+	jz .done
+
+	mov ebx, eax
+	mov eax, edx
+	xor ecx, ecx
 .prn_loop:
-	mov bl, [edx + ecx]
-	mov [FB_MMIO_ADDR+esi+ecx*2], bl          ; write character
-	mov byte [FB_MMIO_ADDR+esi+ecx*2+1], BLACK_TEXT
+	mov dl, [eax + ecx]
+	call prn_byte
 	inc ecx
-	cmp ecx, eax
-	jne .prn_loop
+	cmp ecx, ebx
+	jb .prn_loop
+.done:
 
-	pop esi
-	add esi, ecx
+	pop edx
 	pop ecx
 	pop ebx
+	pop eax
 	ret
 
 ; pre
