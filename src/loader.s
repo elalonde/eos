@@ -81,6 +81,8 @@ load_eos:
 	mov edx, welcome
 	mov eax, welcome_len
 	call prn_msg
+	call fb_skip_ln
+
 	call prn_bl_rpt
 	call prn_cursor
 
@@ -278,7 +280,7 @@ prn_elf_sects:
 	mov eax, elf_sect_table_str_idx_msg_len
 	call prn_msg
 	mov eax, [ebx+40]
-	call prn_hex_num
+	call prn_dec
 
 	pop edx
 	pop eax
@@ -481,7 +483,7 @@ prn_boot_dev_nfo:
 .prn_partitions_loop:
 	; convert partition to hex
 	call byte_to_hex
-	cmp dx, 0x6666 ; 0xFF
+	cmp dx, 0x4646 ; 0xFF
 	je .loop_done
 	push edx
 	cmp ecx, 2
