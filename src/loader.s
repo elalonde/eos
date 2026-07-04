@@ -125,26 +125,17 @@ fb_skip_ln:
 ; - esi contains updated fb cell offset
 prn_cstr:
 	push eax
-	push ebx
-	push ecx
-	push esi
+	push edx
 
-	; byte offset
-	shl esi, 1
-	xor ecx, ecx
 .prn_loop:
-	mov bl, [eax+ecx]
-	test bl, bl
+	mov dl, [eax]
+	test dl, dl
 	jz .end
-	mov [FB_MMIO_ADDR+esi+ecx*2], bl
-	mov byte [FB_MMIO_ADDR+esi+ecx*2+1], BLACK_TEXT
-	inc ecx
+	call prn_byte
+	inc eax
 	jmp .prn_loop
 .end:
-	pop esi
-	add esi, ecx
-	pop ecx
-	pop ebx
+	pop edx
 	pop eax
 	ret
 
