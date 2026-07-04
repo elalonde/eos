@@ -71,6 +71,7 @@ load_eos:
 	sub ecx, edi          ; byte count
 	shr ecx, 2            ; convert to dword count
 	rep stosd             ; zero and repeat
+.start:
 	
 	; point esp to the start of the stack (grows down)
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
@@ -192,9 +193,8 @@ prn_bl_rpt:
 	; test flag and also for empty string
 	test byte [ebx], 0x4
 	jz .skipcmdline
-	mov eax, [ebx+16]
-	mov ecx, [eax]
-	test cl, cl
+	mov  eax, [ebx+16]
+	cmp byte [eax], 0
 	jz .skipcmdline
 	mov edx, cmdline_msg
 	mov eax, cmdline_msg_len
@@ -215,12 +215,12 @@ prn_bl_rpt:
 	test al, al
 	jz .skipmodules
 .skipmodules:
-	test byte [ebx], 0x32
+	test byte [ebx], 0x20
 	jz .skip_elf_sects
 	call prn_elf_sects
 	call fb_skip_ln
 .skip_elf_sects:
-	test byte [ebx], 0x64
+	test byte [ebx], 0x40
 	jz .skip_mmap_sects
 	mov edx, elf_sect_table_mmap_msg
 	mov eax, elf_sect_table_mmap_msg_len
