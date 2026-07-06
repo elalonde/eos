@@ -27,7 +27,7 @@ section .rodata
 	hex_pre_len equ $-hex_pre
 	welcome db "Welcome to eos."
 	welcome_len equ $-welcome
-	bl_pre db "Bootloader report:"
+	bl_pre db "GRUB multiboot report:"
 	bl_pre_len equ $-bl_pre
 	lower_msg db "Lower memory: "
 	lower_len equ $-lower_msg
@@ -39,8 +39,14 @@ section .rodata
 	boot_dev_len equ $-boot_dev_msg
 	cmdline_msg db "cmdline: "
 	cmdline_msg_len equ $-cmdline_msg
-	modules_msg db "Loaded module count: "
+	modules_msg db "Boot module count: "
 	modules_msg_len equ $-modules_msg
+	module_start_addr_msg db "Module start address: "
+	module_start_addr_msg_len equ $-module_start_addr_msg
+	module_end_addr_msg db "Module boundary address: "
+	module_end_addr_msg_len equ $-module_end_addr_msg
+	module_args_msg db "Module arguments: "
+	module_args_msg_len equ $-module_args_msg
 	elf_sect_msg db "ELF section information: "
 	elf_sect_len equ $-elf_sect_msg
 	elf_h_cnt_msg db "ELF header count: "
@@ -72,7 +78,7 @@ load_eos:
 	shr ecx, 2            ; convert to dword count
 	rep stosd             ; zero and repeat
 .start:
-	
+
 	; point esp to the start of the stack (grows down)
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
 
@@ -141,6 +147,51 @@ prn_cstr:
 	ret
 
 ; pre:
+; - eax is address of modules array
+; - ecx contains number of modules in array
+prn_boot_modules:
+	push eax
+	push ebx
+	push ecx
+	add dword [fb_indent_len], 4
+
+	mov ebx, eax
+.prn_module_loop:
+	call fb_skip_ln
+	mov edx, module_start_addr_msg
+	mov eax, module_start_addr_msg_len
+	call prn_msg
+	mov eax, [ebx]
+	call prn_hex_num
+
+	call fb_skip_ln
+	mov edx, module_end_addr_msg
+	mov eax, module_end_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+4]
+	call prn_hex_num
+
+	call fb_skip_ln
+	mov edx, module_args_msg
+	mov eax, module_args_msg_len
+	call prn_msg
+	mov eax, [ebx+8]
+	call prn_cstr
+
+	; offset 12 is reserved
+
+	; next array entry
+	add ebx, 16
+	dec ecx
+	jnz .prn_module_loop
+
+	sub dword [fb_indent_len], 4
+	pop ecx
+	pop ebx
+	pop eax
+	ret
+
+; pre:
 ; - ebx contains addr of bl info
 ; - esi contains current fb cell offset
 ; post:
@@ -204,21 +255,27 @@ prn_bl_rpt:
 	call prn_cstr
 .skipcmdline:
 	; loaded modules
-	test byte [ebx], 0x8
+	test byte [ebx], 1<<3
 	jz .skipmodules
 	call fb_skip_ln
 	mov edx, modules_msg
 	mov eax, modules_msg_len
 	call prn_msg
-	mov eax, [ebx+20]
+	mov eax, [ebx+0x14]
 	call prn_dec
-	test al, al
+	mov ecx, eax
+	test ecx, ecx
 	jz .skipmodules
+	mov eax, [ebx+0x18]
+	call prn_boot_modules
 .skipmodules:
+	; elf section headers
 	test byte [ebx], 0x20
 	jz .skip_elf_sects
+	call fb_skip_ln
 	call prn_elf_sects
 .skip_elf_sects:
+	; mmap_length and addresses
 	test byte [ebx], 0x40
 	jz .skip_mmap_sects
 	call fb_skip_ln
