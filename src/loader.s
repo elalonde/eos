@@ -24,8 +24,6 @@ kernel_stack:
 	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
 
 section .rodata
-	hex_pre db "0x"
-	hex_pre_len equ $-hex_pre
 	welcome db "Welcome to eos."
 	welcome_len equ $-welcome
 	bl_pre db "GRUB multiboot report:"
@@ -512,11 +510,10 @@ prn_hex_num:
 	push edx
 
 	; dance to print 0x (updates esi)
-	mov ebx, eax
-	mov edx, hex_pre
-	mov eax, hex_pre_len
-	call prn_msg
-	mov eax, ebx
+	mov dl, '0'
+	call prn_byte
+	mov dl, 'x'
+	call prn_byte
 
 	mov ecx, 3
 .prn_byte_loop:
@@ -541,12 +538,10 @@ prn_boot_dev_nfo:
 	push ecx
 	push edx
 
-	; dance to print 0x (updates esi)
-	mov ebx, eax
-	mov edx, hex_pre
-	mov eax, hex_pre_len
-	call prn_msg
-	mov eax, ebx
+	mov dl, '0'
+	call prn_byte
+	mov dl, 'x'
+	call prn_byte
 
 	; print boot device
 	mov ecx, 3
