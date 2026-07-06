@@ -15,6 +15,7 @@ HEX_GT_TEN_ASCII_OFFSET equ 0x37
 HEX_LT_TEN_ASCII_OFFSET equ 0x30
 LINE_LEN equ 0x50
 BL_REPORT_INDENT_LEN equ 0x4
+FB_SCROLL_BOUNDARY equ 0x7D0
 
 section .bss
 	align 4                 ; align at 4 bytes
@@ -444,17 +445,42 @@ byte_to_hex:
 ; post:
 ; - esi contains updated fb cell offset
 prn_byte:
-	push esi
+	push eax
+	push ebx
+	push ecx
+	push edi
 
+	cmp esi, FB_SCROLL_BOUNDARY
+	jb .skip_fb_scroll
+	cld
 	; byte offset
-	shl esi, 1
+	mov esi, FB_MMIO_ADDR+160
+	mov edi, FB_MMIO_ADDR
+	; count of words to mov
+	mov ecx, FB_SCROLL_BOUNDARY-80
+	rep movsw
+	; blank bottom row
+	mov edi, FB_MMIO_ADDR+(FB_SCROLL_BOUNDARY<<1)-160
+	mov al, ' '
+	mov ah, BLACK_TEXT
+	mov ecx, 80
+	rep stosw
+	; update esi to bottom row
+	mov esi, FB_SCROLL_BOUNDARY-80
+	add esi, [fb_indent_len]
+.skip_fb_scroll:
+	mov ebx, esi
+	; byte offset
+	shl ebx, 1
 
-	mov [FB_MMIO_ADDR+esi], dl
-	mov byte [FB_MMIO_ADDR+esi+1], BLACK_TEXT
+	mov [FB_MMIO_ADDR+ebx], dl
+	mov byte [FB_MMIO_ADDR+ebx+1], BLACK_TEXT
 
-	; cell offset
-	pop esi
 	inc esi
+	pop edi
+	pop ecx
+	pop ebx
+	pop eax
 	ret
 
 ; print a byte that was converted to ascii and stored in dx
