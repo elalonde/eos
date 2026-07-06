@@ -4,8 +4,6 @@ Kernel programming exercises for a custom x86 operating system, loosely
 following [*The Little Book About OS Development*][littleosbook] by Erik Helin
 and Adam Renberg.
 
-> The assembly is extensively documented as an aide to the author.
-
 ## About
 
 A from-scratch walk through low-level x86 systems programming as a learning
