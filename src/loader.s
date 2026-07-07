@@ -16,10 +16,13 @@ HEX_LT_TEN_ASCII_OFFSET equ 0x30
 LINE_LEN equ 0x50
 BL_REPORT_INDENT_LEN equ 0x4
 FB_SCROLL_BOUNDARY equ 0x7D0
+CRTC_HIGH_BYTE equ 0x0E
+CRTC_LOW_BYTE equ 0x0F
 
 section .bss
 	align 4                 ; align at 4 bytes
 	fb_indent_len resd 1
+	fb_mem_addr resd 1
 kernel_stack:
 	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
 
@@ -28,38 +31,6 @@ section .rodata
 	welcome_len equ $-welcome
 	bl_pre db "GRUB multiboot report:"
 	bl_pre_len equ $-bl_pre
-	lower_msg db "Lower memory: "
-	lower_len equ $-lower_msg
-	upper_msg db "Upper memory: "
-	upper_len equ $-upper_msg
-	kb_msg db " KB"
-	kb_len equ $-kb_msg
-	boot_dev_msg db "Boot device: Drive "
-	boot_dev_len equ $-boot_dev_msg
-	cmdline_msg db "cmdline: "
-	cmdline_msg_len equ $-cmdline_msg
-	modules_msg db "Boot module count: "
-	modules_msg_len equ $-modules_msg
-	module_start_addr_msg db "Module start address: "
-	module_start_addr_msg_len equ $-module_start_addr_msg
-	module_end_addr_msg db "Module boundary address: "
-	module_end_addr_msg_len equ $-module_end_addr_msg
-	module_args_msg db "Module arguments: "
-	module_args_msg_len equ $-module_args_msg
-	elf_sect_msg db "ELF section information: "
-	elf_sect_len equ $-elf_sect_msg
-	elf_h_cnt_msg db "ELF header count: "
-	elf_h_cnt_msg_len equ $-elf_h_cnt_msg
-	elf_sect_entry_siz_msg db "ELF section header entry size: "
-	elf_sect_entry_siz_msg_len equ $-elf_sect_entry_siz_msg
-	elf_sect_table_addr_msg db "ELF section header table addr: "
-	elf_sect_table_addr_msg_len equ $-elf_sect_table_addr_msg
-	elf_sect_table_str_idx_msg db "ELF section header string table index: "
-	elf_sect_table_str_idx_msg_len equ $-elf_sect_table_str_idx_msg
-	elf_sect_table_mmap_msg db "Memory map length: "
-	elf_sect_table_mmap_msg_len equ $-elf_sect_table_mmap_msg
-	bytes_msg db " bytes"
-	bytes_msg_len equ $-bytes_msg
 
 section .text
 	align 4                 ; the code must be 4 byte aligned
@@ -69,28 +40,27 @@ section .text
 
 load_eos:
 	; zero out .bss region
-	cld                   ; direction
-	mov eax, 0            ; value
-	mov edi, __bss_start  ; destination
+	cld
+	mov eax, 0
+	mov edi, __bss_start
 	mov ecx, __bss_end
-	sub ecx, edi          ; byte count
-	shr ecx, 2            ; convert to dword count
-	rep stosd             ; zero and repeat
-.start:
+	sub ecx, edi
+	shr ecx, 2
+	rep stosd
 
-	; point esp to the start of the stack (grows down)
+	; set stack pointer
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
 
 	call crtc_read_fb_cell
-	call fb_skip_ln
+	;call fb_skip_ln
 
-	mov edx, welcome
-	mov eax, welcome_len
-	call prn_msg
-	call fb_skip_ln
+	;mov edx, welcome
+	;mov eax, welcome_len
+	;call prn_msg
+	;call fb_skip_ln
 
-	call prn_bl_rpt
-	call prn_cursor
+	;call prn_bl_rpt
+	;call prn_cursor
 
 .hang:
 	; bye bye
@@ -98,560 +68,25 @@ load_eos:
 	hlt
 	jmp .hang
 
-; skip fb cell offset to next line
-; pre:
-; - esi contains current fb cell offset
-; - fb_indent_len contains number of spaces to indent on new line
-; post:
-; - esi contains updated fb cell offset
-fb_skip_ln:
-	push eax
-	push ebx
-	push edx
 
-	mov ebx, LINE_LEN
-	xor edx, edx
-	mov eax, esi
-	; edx:eax
-	div ebx
-	neg edx
-	add edx, ebx
-	add esi, edx
-	add esi, [fb_indent_len]
-
-	pop edx
-	pop ebx
-	pop eax
-	ret
-
-; pre:
-; - eax contains pointer to c string
-; - esi contains current fb cell offset
-; post:
-; - esi contains updated fb cell offset
-prn_cstr:
-	push eax
-	push edx
-
-.prn_loop:
-	mov dl, [eax]
-	test dl, dl
-	jz .end
-	call prn_byte
-	inc eax
-	jmp .prn_loop
-.end:
-	pop edx
-	pop eax
-	ret
-
-; pre:
-; - eax is address of modules array
-; - ecx contains number of modules in array
-prn_boot_modules:
-	push eax
-	push ebx
-	push ecx
-	add dword [fb_indent_len], 4
-
-	mov ebx, eax
-.prn_module_loop:
-	call fb_skip_ln
-	mov edx, module_start_addr_msg
-	mov eax, module_start_addr_msg_len
-	call prn_msg
-	mov eax, [ebx]
-	call prn_hex_num
-
-	call fb_skip_ln
-	mov edx, module_end_addr_msg
-	mov eax, module_end_addr_msg_len
-	call prn_msg
-	mov eax, [ebx+4]
-	call prn_hex_num
-
-	call fb_skip_ln
-	mov edx, module_args_msg
-	mov eax, module_args_msg_len
-	call prn_msg
-	mov eax, [ebx+8]
-	call prn_cstr
-
-	; offset 12 is reserved
-
-	; next array entry
-	add ebx, 16
-	dec ecx
-	jnz .prn_module_loop
-
-	sub dword [fb_indent_len], 4
-	pop ecx
-	pop ebx
-	pop eax
-	ret
-
-; pre:
-; - ebx contains addr of bl info
-; - esi contains current fb cell offset
-; post:
-; - esi contains updated fb cell offset
-prn_bl_rpt:
-	push eax
-	push ecx
-	push edx
-
-	mov dword [fb_indent_len], BL_REPORT_INDENT_LEN
-	mov edx, bl_pre
-	mov eax, bl_pre_len
-	call prn_msg
-
-	test byte [ebx], 0x1
-	jz .skipmem
-	call fb_skip_ln
-	; lower mem
-	mov edx, lower_msg
-	mov eax, lower_len
-	call fb_skip_ln
-	call prn_msg
-	mov eax, [ebx+4]
-	call prn_dec
-	mov edx, kb_msg
-	mov eax, kb_len
-	call prn_msg
-	; upper mem
-	call fb_skip_ln
-	mov edx, upper_msg
-	mov eax, upper_len
-	call prn_msg
-	mov eax, [ebx+8]
-	call prn_dec
-	mov edx, kb_msg
-	mov eax, kb_len
-	call prn_msg
-.skipmem:
-	; boot device
-	test byte [ebx], 0x2
-	jz .skipboot
-	call fb_skip_ln
-	mov edx, boot_dev_msg
-	mov eax, boot_dev_len
-	call prn_msg
-	mov eax, [ebx+12]
-	call prn_boot_dev_nfo
-.skipboot:
-	; cmdline
-	; test flag and also for empty string
-	test byte [ebx], 0x4
-	jz .skipcmdline
-	mov  eax, [ebx+16]
-	cmp byte [eax], 0
-	jz .skipcmdline
-	call fb_skip_ln
-	mov edx, cmdline_msg
-	mov eax, cmdline_msg_len
-	call prn_msg
-	mov eax, [ebx+16]
-	call prn_cstr
-.skipcmdline:
-	; loaded modules
-	test byte [ebx], 1<<3
-	jz .skipmodules
-	call fb_skip_ln
-	mov edx, modules_msg
-	mov eax, modules_msg_len
-	call prn_msg
-	mov eax, [ebx+0x14]
-	call prn_dec
-	mov ecx, eax
-	test ecx, ecx
-	jz .skipmodules
-	mov eax, [ebx+0x18]
-	call prn_boot_modules
-.skipmodules:
-	; elf section headers
-	test byte [ebx], 0x20
-	jz .skip_elf_sects
-	call fb_skip_ln
-	call prn_elf_sects
-.skip_elf_sects:
-	; mmap_length and addresses
-	test byte [ebx], 0x40
-	jz .skip_mmap_sects
-	call fb_skip_ln
-	mov edx, elf_sect_table_mmap_msg
-	mov eax, elf_sect_table_mmap_msg_len
-	call prn_msg
-	mov eax, [ebx+44]
-	call prn_dec
-	mov edx, bytes_msg
-	mov eax, bytes_msg_len
-	call prn_msg
-.skip_mmap_sects:
-	mov dword [fb_indent_len], 0
-	pop edx
-	pop ecx
-	pop eax
-	ret
-
-; pre:
-; - esi contains current fb cell offset
-; - ebx contains bootloader report table
-; post:
-; - esi contains updated fb cell offset
-prn_elf_sects:
-	push eax
-	push edx
-
-	mov edx, elf_h_cnt_msg
-	mov eax, elf_h_cnt_msg_len
-	call prn_msg
-	mov eax, [ebx+28]
-	call prn_dec
-	call fb_skip_ln
-
-	mov edx, elf_sect_entry_siz_msg
-	mov eax, elf_sect_entry_siz_msg_len
-	call prn_msg
-	mov eax, [ebx+32]
-	call prn_dec
-	call fb_skip_ln
-
-	mov edx, elf_sect_table_addr_msg
-	mov eax, elf_sect_table_addr_msg_len
-	call prn_msg
-	mov eax, [ebx+36]
-	call prn_hex_num
-	call fb_skip_ln
-
-	mov edx, elf_sect_table_str_idx_msg
-	mov eax, elf_sect_table_str_idx_msg_len
-	call prn_msg
-	mov eax, [ebx+40]
-	call prn_dec
-
-	pop edx
-	pop eax
-	ret
-
-; pre:
-; - esi contains current fb cell offset
-; post:
-; - esi contains updated fb cell offset
-prn_cursor:
-	push eax
-	push ebx
-	push esi
-
-	mov al, 0x0E
-	mov ebx, esi
-	shr ebx, 8
-	; high bits
-	call crtc_write
-	mov al, 0x0F
-	mov ebx, esi
-	; low bits
-	call crtc_write
-	mov al, 0x0A
-	mov ebx, 0
-	; scanline start
-	call crtc_write
-	mov al, 0x0B
-	mov ebx, 0x0F
-	; scanline end
-	call crtc_write
-
-	pop esi
-	inc esi
-	pop ebx
-	pop eax
-	ret
-
-; pre:
-; - edx contains pointer to msg
-; - eax contains msg len
-; - esi contains current fb cell offset
-; post:
-; - esi contains updated fb cell offset
-prn_msg:
-	push eax
-	push ebx
-	push ecx
-	push edx
-
-	test eax, eax
-	jz .done
-
-	mov ebx, eax
-	mov eax, edx
-	xor ecx, ecx
-.prn_loop:
-	mov dl, [eax + ecx]
-	call prn_byte
-	inc ecx
-	cmp ecx, ebx
-	jb .prn_loop
-.done:
-
-	pop edx
-	pop ecx
-	pop ebx
-	pop eax
-	ret
-
-; pre
-; - eax contains byte to convert
-; - ecx is byte index of interest in eax
-; post:
-; - lowest 2 bytes in edx contains the hex representation
-byte_to_hex:
-	push eax
-	push ecx
-
-	; byte index to shift length
-	shl ecx, 3
-	; move to index 0
-	shr eax, cl
-
-	xor edx, edx
-	mov dl, al
-	; high nibble
-	shr dl, 4
-
-	and eax, 0x0000000F
-	cmp al, 0xA
-	jb .lower_lt_ten
-	add al, HEX_GT_TEN_ASCII_OFFSET
-	jmp .lower_done
-.lower_lt_ten:
-	add al, HEX_LT_TEN_ASCII_OFFSET
-.lower_done:
-	cmp dl, 0xA
-	jb .upper_lt_ten
-	add dl, HEX_GT_TEN_ASCII_OFFSET
-	jmp .upper_done
-.upper_lt_ten:
-	add dl, HEX_LT_TEN_ASCII_OFFSET
-.upper_done:
-	mov dh, dl
-	mov dl, al
-	pop ecx
-	pop eax
-	ret
-
-; - dl contains the byte to print
-; - esi contains current fb cell offset
-; post:
-; - esi contains updated fb cell offset
-prn_byte:
-	push eax
-	push ebx
-	push ecx
-	push edi
-
-	cmp esi, FB_SCROLL_BOUNDARY
-	jb .skip_fb_scroll
-	cld
-	; byte offset
-	mov esi, FB_MMIO_ADDR+160
-	mov edi, FB_MMIO_ADDR
-	; count of words to mov
-	mov ecx, FB_SCROLL_BOUNDARY-80
-	rep movsw
-	; blank bottom row
-	mov edi, FB_MMIO_ADDR+(FB_SCROLL_BOUNDARY<<1)-160
-	mov al, ' '
-	mov ah, BLACK_TEXT
-	mov ecx, 80
-	rep stosw
-	; update esi to bottom row
-	mov esi, FB_SCROLL_BOUNDARY-80
-	add esi, [fb_indent_len]
-.skip_fb_scroll:
-	mov ebx, esi
-	; byte offset
-	shl ebx, 1
-
-	mov [FB_MMIO_ADDR+ebx], dl
-	mov byte [FB_MMIO_ADDR+ebx+1], BLACK_TEXT
-
-	inc esi
-	pop edi
-	pop ecx
-	pop ebx
-	pop eax
-	ret
-
-; print a byte that was converted to ascii and stored in dx
-; pre:
-; - dx contains the 16 bit word to print
-; - esi contains current fb cell offset
-; post:
-; - esi contains updated fb cell offset
-prn_hex_byte:
-	; high bits first
-	push edx
-	mov dl, dh
-	call prn_byte
-
-	pop edx
-	call prn_byte
-
-	ret
-
-; pre:
-; - eax has number to print
-; - esi contains current fb cell offset
-; post:
-; - esi contains updated fb cell offset
-prn_hex_num:
-	push eax
-	push ebx
-	push ecx
-	push edx
-
-	; dance to print 0x (updates esi)
-	mov dl, '0'
-	call prn_byte
-	mov dl, 'x'
-	call prn_byte
-
-	mov ecx, 3
-.prn_byte_loop:
-	call byte_to_hex
-	call prn_hex_byte
-	dec ecx
-	jns .prn_byte_loop
-
-	pop edx
-	pop ecx
-	pop ebx
-	pop eax
-	ret
-; pre:
-; - esi contains current fb cell offset
-; - eax contains boot device information
-; post:
-; - esi contains updated fb cell offset
-prn_boot_dev_nfo:
-	push eax
-	push ebx
-	push ecx
-	push edx
-
-	mov dl, '0'
-	call prn_byte
-	mov dl, 'x'
-	call prn_byte
-
-	; print boot device
-	mov ecx, 3
-	call byte_to_hex
-	call prn_hex_byte
-
-	mov ecx, 2
-.prn_partitions_loop:
-	; convert partition to hex
-	call byte_to_hex
-	cmp dx, 0x4646 ; 0xFF
-	je .loop_done
-	push edx
-	cmp ecx, 2
-	jne .prn_period
-	mov dl, ' '
-	call prn_byte
-	mov dl, '('
-	call prn_byte
-	jmp .prn_partition
-.prn_period:
-	mov dl, '.'
-	call prn_byte
-.prn_partition:
-	pop edx
-	call prn_hex_byte
-	dec ecx
-	jns .prn_partitions_loop
-.loop_done:
-	; iff sentinel encountered on first iteration
-	cmp ecx, 2
-	je .skip_close_paren
-	mov dl, ')'
-	call prn_byte
-.skip_close_paren:
-	pop edx
-	pop ecx
-	pop ebx
-	pop eax
-	ret
-
-; pre:
-; - eax is number to print
-; - esi contains current fb cell offset
-; post:
-; - esi contains updated fb cell offset
-prn_dec:
-	push eax
-	push ebx
-	push ecx
-	push edx
-
-	mov ebx, 10
-	xor ecx, ecx
-.div_loop:
-	xor edx, edx
-	; edx:eax
-	div ebx
-	; store remainder
-	push edx
-	inc ecx
-	test eax, eax
-	jnz .div_loop
-.prn_digit_loop:
-	pop edx
-	add dl, '0'
-	call prn_byte
-	dec ecx
-	jnz .prn_digit_loop
-
-	pop edx
-	pop ecx
-	pop ebx
-	pop eax
-	ret
-
-; post: esi contains the fb cell offset
 crtc_read_fb_cell:
-	push eax
-	push ebx
-	push edx
+	; latch and read cursor location high
 	mov dx, VGA_CRTC_IDX_PORT
-	mov al, 0x0F
-	out dx, al                  ; latch index
+	mov al, CRTC_HIGH_BYTE
+	out dx, al
 	mov dx, VGA_CRTC_DAT_PORT
-	in al, dx                   ; get data
-	mov bl, al                  ; store low bits
+	in al, dx
+	movzx eax, al
+	; move to upper byte
+	shl eax, 8
+	; latch and read cursor location low
 	mov dx, VGA_CRTC_IDX_PORT
-	mov al, 0x0E
-	out dx, al                  ; latch index
+	mov al, CRTC_LOW_BYTE
+	out dx, al
 	mov dx, VGA_CRTC_DAT_PORT
-	in al, dx                   ; get data
-	movzx eax, al               ; widen
-	shl eax, 8                  ; shift to high bits
-	or al, bl                   ; set low bits
-	mov esi, eax
-	pop edx
-	pop ebx
-	pop eax
-	ret
-
-; pre:
-;  al has register to latch
-;  bl has data to write
-crtc_write:
-	push edx
-	mov dx, VGA_CRTC_IDX_PORT
-	out dx, al                 ; latch register
-	mov dx, VGA_CRTC_DAT_PORT
-	mov al, bl
-	out dx, al                 ; write data
-	pop edx
+	in al, dx
+	; convert cell offset to mem addr
+	shl eax, 1
+	add eax, FB_MMIO_ADDR
+	mov [fb_mem_addr], eax
 	ret

@@ -7,3 +7,4 @@ bochsrc
 *.sw[op]
 build
 testbuild
+*.orig
