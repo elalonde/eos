@@ -31,6 +31,7 @@ section .bss
 	align 4
 	fb_indent_bytes resd 1
 	fb_mem_addr resd 1
+kernel_stack:
 	resb KERNEL_STACK_SIZE
 
 section .rodata
@@ -57,7 +58,6 @@ load_eos:
 	rep stosd
 
 	; set stack pointer
-kernel_stack:
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
 	call crtc_write_scanline
 
@@ -79,53 +79,22 @@ kernel_stack:
 	hlt
 	jmp .hang
 
-fb_scroll:
-	push esi
-	mov esi, FB_MMIO_ADDR+LINE_LEN_BYTES
-	mov edi, FB_MMIO_ADDR
-	mov ecx, FB_SCROLL_LEN_BYTES
-	rep movsb
-	; blank last line and move cursor
-	; back on screen
-	mov edi, FB_SCROLL_BOUNDARY_ADDR-LINE_LEN_BYTES
-	push edi
-	mov al, ' '
-	mov ah, BLACK_TEXT
-	mov ecx, LINE_LEN_BYTES
-	shr ecx, 1 ; word count
-	rep stosw
-	pop edi
-	; honor global indent
-	add edi, [fb_indent_bytes]
-	pop esi
-	ret
-
 ;-----------------------------------------------------------------------
-; prn_* family: framebuffer output primitives
+; prn_* routines handle framebuffer output.
 ;
-; cursor convention (supersedes callee-preserve for EDI within family):
+; EDI is the absolute byte address of the framebuffer cursor. It
+; is advanced on return to new cursor location. all routines will scroll
+; if necessary and honor indentation via [fb_indent_bytes].
 ;
-;   EDI in:  current cursor, absolute fb byte address
-;       out: advanced past output written
-;   EAX,ECX,EDX  trashed unless noted per routine
-;   ESI,EBX,EBP  preserved
+; callers lease edi from [fb_mem_addr] and store it back when printing
+; completes.
 ;
-; [fb_mem_addr] is canonical ONLY outside a print sequence. the
-; outermost caller leases: load EDI before first prn_* call, store
-; EDI back after last. no prn_* routine touches [fb_mem_addr].
+; eax/ecx/edx trashed unless noted. ebx/ebp/esi preserved.
 ;
-; routines borrowing EDI internally must bracket it and must not
-; call prn_* while the bracket is open.
-;
-; per-routine:
-;   prn_msg    esi in: msg base. out: advanced past bytes printed.
-;              ecx in: byte count. trashed.
-;   prn_cstr   esi in: cstr base. out: past the terminating nul.
-;   fb_scroll  preserves edi but moves the screen under it; callers
-;              detecting scroll own the one-row correction. see prn_byte.
+; prn_byte      dl = byte to print.
+; prn_msg       esi = base (preserved), ecx = count (consumed).
+; prn_cstr      esi = cstr (preserved). eax points past the nul.
 ;-----------------------------------------------------------------------
-
-; dl contains byte to print
 prn_byte:
 	cmp edi, FB_SCROLL_BOUNDARY_ADDR
 	jb .skip_scroll
@@ -139,17 +108,20 @@ prn_byte:
 	ret
 
 prn_msg:
-	test ecx, ecx
-	jz .done
+	push esi
+	add ecx, esi
+	cmp ecx, esi
+	je .done
 .prn_loop:
 	mov dl, [esi]
 	push ecx
 	call prn_byte
-	inc esi
 	pop ecx
-	dec ecx
-	jnz .prn_loop
+	inc esi
+	cmp esi, ecx
+	jb .prn_loop
 .done:
+	pop esi
 	ret
 
 prn_cstr:
@@ -168,23 +140,23 @@ prn_cstr:
 	inc eax
 	ret
 
-fb_skip_line:
-	push ebx
-	mov eax, edi
-	; bytes since beginning of fb
-	sub eax, FB_MMIO_ADDR
-	mov ebx, LINE_LEN_BYTES
-	xor edx, edx
-	div ebx
-	sub ebx, edx ; bytes until next row
-	add edi, ebx ; new cursor addr
-	cmp edi, FB_SCROLL_BOUNDARY_ADDR
-	jb .skip_scroll
-	call fb_scroll
-.skip_scroll:
-	pop ebx
-	ret
-
+;-----------------------------------------------------------------------
+; crtc_* routines drive the VGA CRT controller.
+;
+; all operations require latching at crtc index and data ports to configure
+; registers. the device holds one latched index across calls, so register
+; sequences must not be interrupted by other crtc access.
+;
+; eax/ecx/edx are trashed; other registers rest preserved.
+;
+; crtc_write           al = register index, cl = data
+; crtc_read_fb_addr    reads the hw cursor; returns it in eax as
+;                      an absolute framebuffer byte address.
+; crtc_write_cursor    edi = absolute cursor byte addr. used to write cursor
+;                      location.
+; crtc_write_scanline  configures cursor shape; shape is preserved until
+;                      changed.
+;-----------------------------------------------------------------------
 crtc_read_fb_addr:
 	; latch and read cursor location high
 	mov dx, CRTC_IDX_PORT
@@ -206,8 +178,6 @@ crtc_read_fb_addr:
 	add eax, FB_MMIO_ADDR
 	ret
 
-; pre:
-; - edi contains memory address of cursor placement
 crtc_write_cursor:
 	; tmp space
 	push ebx
@@ -249,4 +219,61 @@ crtc_write:
 	mov dx, CRTC_DAT_PORT
 	mov al, cl
 	out dx, al
+	ret
+
+;-----------------------------------------------------------------------
+; fb_* routines control screen and cursor mechanics.
+;
+; EDI is the absolute byte address of the framebuffer cursor, and
+; is updated to new cursor location. routines honor indentation via
+; [fb_indent_bytes].
+;
+; register contract:
+;     trashed: eax/ecx/edx
+;     preserved: ebx/ebp/esi
+;
+; fb_scroll     takes no arguments and moves entire screen up one row. final
+;               row is blank. EDI is updated to new cursor placement.
+; fb_skip_line  takes EDI in, scrolls if necessary, and updates EDI to new
+;               cursor placement.
+;-----------------------------------------------------------------------
+fb_scroll:
+	push esi
+	mov esi, FB_MMIO_ADDR+LINE_LEN_BYTES
+	mov edi, FB_MMIO_ADDR
+	mov ecx, FB_SCROLL_LEN_BYTES
+	rep movsb
+	; blank last line and move cursor
+	; back on screen
+	mov edi, FB_SCROLL_BOUNDARY_ADDR-LINE_LEN_BYTES
+	push edi
+	mov al, ' '
+	mov ah, BLACK_TEXT
+	mov ecx, LINE_LEN_BYTES
+	shr ecx, 1 ; word count
+	rep stosw
+	pop edi
+	; honor global indent
+	add edi, [fb_indent_bytes]
+	pop esi
+	ret
+
+fb_skip_line:
+	push ebx
+	mov eax, edi
+	; bytes since beginning of fb
+	sub eax, FB_MMIO_ADDR
+	mov ebx, LINE_LEN_BYTES
+	xor edx, edx
+	div ebx
+	sub ebx, edx ; bytes until next row
+	add edi, ebx ; new cursor addr
+	cmp edi, FB_SCROLL_BOUNDARY_ADDR
+	jb .skip_scroll
+	call fb_scroll
+	pop ebx
+	ret
+.skip_scroll:
+	add edi, [fb_indent_bytes]
+	pop ebx
 	ret
