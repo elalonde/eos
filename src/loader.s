@@ -124,6 +124,20 @@ prn_byte:
 	add edi, 2
 	ret
 
+prn_msg:
+	test ecx, ecx
+	jz .done
+.prn_loop:
+	mov dl, [esi]
+	push ecx
+	call prn_byte
+	inc esi
+	pop ecx
+	dec ecx
+	jnz .prn_loop
+.done:
+	ret
+
 prn_newline:
 	push ebx
 	mov eax, edi
