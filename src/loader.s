@@ -7,9 +7,16 @@ FLAGS        equ 0x0            ; multiboot flags
 CHECKSUM     equ -MAGIC_NUMBER  ; calculate the checksum
                                 ; (magic number + checksum + flags should equal 0)
 FB_MMIO_ADDR      equ 0xB8000   ; framebuffer memory addr
-VGA_CRTC_IDX_PORT equ 0x3D4     ; VGA CRTC index port
-VGA_CRTC_DAT_PORT equ 0x3D5     ; VGA CRTC data port
-KERNEL_STACK_SIZE equ 4096      ; size of stack in bytes
+CRTC_IDX_PORT equ 0x3D4     ; VGA CRTC index port
+CRTC_DAT_PORT equ 0x3D5     ; VGA CRTC data port
+CRTC_REG_CURS_LOC_HIGH equ 0x0E
+CRTC_REG_CURS_LOC_LOW equ 0x0F
+CRTC_REG_CURS_SCANLINE_START equ 0x0A
+CRTC_REG_CURS_SCANLINE_STOP equ 0x0B
+CRTC_SCANLINE_LOC_TOP equ 0x00
+CRTC_SCANLINE_LOC_BOT equ 0x0F
+CRTC_CURS_START equ 0x0A
+KERNEL_STACK_SIZE equ 4096
 BLACK_TEXT equ 0x07
 HEX_GT_TEN_ASCII_OFFSET equ 0x37
 HEX_LT_TEN_ASCII_OFFSET equ 0x30
@@ -21,11 +28,10 @@ CRTC_LOW_BYTE equ 0x0F
 FB_SCROLL_LEN_BYTES equ 0xF00
 
 section .bss
-	align 4                 ; align at 4 bytes
+	align 4
 	fb_indent_bytes resd 1
 	fb_mem_addr resd 1
-kernel_stack:
-	resb KERNEL_STACK_SIZE  ; reserve stack for the kernel
+	resb KERNEL_STACK_SIZE
 
 section .rodata
 	welcome db "Welcome to eos."
@@ -34,10 +40,11 @@ section .rodata
 	bl_pre_len equ $-bl_pre
 
 section .text
-	align 4                 ; the code must be 4 byte aligned
-	dd MAGIC_NUMBER         ; write the magic number to the machine code,
-	dd FLAGS                ; the flags,
-	dd CHECKSUM             ; and the checksum
+	align 4
+	; write multiboot flags and checksum
+	dd MAGIC_NUMBER
+	dd FLAGS
+	dd CHECKSUM
 
 load_eos:
 	; zero out .bss region
@@ -50,18 +57,21 @@ load_eos:
 	rep stosd
 
 	; set stack pointer
+kernel_stack:
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
+	call crtc_write_scanline
 
-	call crtc_read_fb_cell
-	call prn_newline
+	call crtc_read_fb_addr
+	mov [fb_mem_addr], eax
+	mov edi, eax
 
-	mov edx, welcome
-	mov eax, welcome_len
-	;call prn_msg
-	;call prn_newline
+	mov esi, welcome
+	mov ecx, welcome_len
+	call prn_msg
+	mov [fb_mem_addr], edi
+	call crtc_write_cursor
 
 	;call prn_bl_rpt
-	;call prn_cursor
 
 .hang:
 	; bye bye
@@ -71,19 +81,22 @@ load_eos:
 
 fb_scroll:
 	push esi
-	push edi
 	mov esi, FB_MMIO_ADDR+LINE_LEN_BYTES
 	mov edi, FB_MMIO_ADDR
 	mov ecx, FB_SCROLL_LEN_BYTES
 	rep movsb
-	; blank last line
+	; blank last line and move cursor
+	; back on screen
 	mov edi, FB_SCROLL_BOUNDARY_ADDR-LINE_LEN_BYTES
+	push edi
 	mov al, ' '
 	mov ah, BLACK_TEXT
 	mov ecx, LINE_LEN_BYTES
 	shr ecx, 1 ; word count
 	rep stosw
 	pop edi
+	; honor global indent
+	add edi, [fb_indent_bytes]
 	pop esi
 	ret
 
@@ -119,9 +132,6 @@ prn_byte:
 	push edx
 	call fb_scroll
 	pop edx
-	; move cursor back on screen
-	sub edi, LINE_LEN_BYTES
-	add edi, [fb_indent_bytes]
 .skip_scroll:
 	mov byte [edi], dl
 	mov byte [edi+1], BLACK_TEXT
@@ -143,19 +153,22 @@ prn_msg:
 	ret
 
 prn_cstr:
+	mov eax, esi
 .prn_loop:
-	mov dl, [esi]
+	mov dl, [eax]
 	test dl, dl
 	jz .end
+	push eax
 	call prn_byte
-	inc esi
+	pop eax
+	inc eax
 	jmp .prn_loop
 .end:
 	; inc past nul
-	inc esi
+	inc eax
 	ret
 
-prn_newline:
+fb_skip_line:
 	push ebx
 	mov eax, edi
 	; bytes since beginning of fb
@@ -168,31 +181,72 @@ prn_newline:
 	cmp edi, FB_SCROLL_BOUNDARY_ADDR
 	jb .skip_scroll
 	call fb_scroll
-	; move cursor back on screen
-	sub edi, LINE_LEN_BYTES
 .skip_scroll:
-	add edi, [fb_indent_bytes]
 	pop ebx
 	ret
 
-crtc_read_fb_cell:
+crtc_read_fb_addr:
 	; latch and read cursor location high
-	mov dx, VGA_CRTC_IDX_PORT
+	mov dx, CRTC_IDX_PORT
 	mov al, CRTC_HIGH_BYTE
 	out dx, al
-	mov dx, VGA_CRTC_DAT_PORT
+	mov dx, CRTC_DAT_PORT
 	in al, dx
 	movzx eax, al
 	; move to upper byte
 	shl eax, 8
 	; latch and read cursor location low
-	mov dx, VGA_CRTC_IDX_PORT
+	mov dx, CRTC_IDX_PORT
 	mov al, CRTC_LOW_BYTE
 	out dx, al
-	mov dx, VGA_CRTC_DAT_PORT
+	mov dx, CRTC_DAT_PORT
 	in al, dx
 	; convert cell offset to mem addr
 	shl eax, 1
 	add eax, FB_MMIO_ADDR
-	mov [fb_mem_addr], eax
+	ret
+
+; pre:
+; - edi contains memory address of cursor placement
+crtc_write_cursor:
+	; tmp space
+	push ebx
+
+	; convert mem addr to crtc cell offset
+	mov ecx, edi
+	sub ecx, FB_MMIO_ADDR
+	shr ecx, 1
+	mov ebx, ecx
+
+	; mov high byte into low bits
+	shr ecx, 0x08
+	mov al, CRTC_REG_CURS_LOC_HIGH
+	call crtc_write
+
+	mov ecx, ebx
+	mov al, CRTC_REG_CURS_LOC_LOW
+	call crtc_write
+
+	pop ebx
+	ret
+
+crtc_write_scanline:
+	mov ecx, CRTC_SCANLINE_LOC_TOP
+	mov al, CRTC_REG_CURS_SCANLINE_START
+	call crtc_write
+
+	mov ecx, CRTC_SCANLINE_LOC_BOT
+	mov al, CRTC_REG_CURS_SCANLINE_STOP
+	call crtc_write
+	ret
+
+
+; al has register
+; cl has data
+crtc_write:
+	mov dx, CRTC_IDX_PORT
+	out dx, al
+	mov dx, CRTC_DAT_PORT
+	mov al, cl
+	out dx, al
 	ret
