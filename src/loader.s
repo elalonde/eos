@@ -53,12 +53,12 @@ load_eos:
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
 
 	call crtc_read_fb_cell
-	call fb_newline
+	call prn_newline
 
-	;mov edx, welcome
-	;mov eax, welcome_len
+	mov edx, welcome
+	mov eax, welcome_len
 	;call prn_msg
-	;call fb_newline
+	;call prn_newline
 
 	;call prn_bl_rpt
 	;call prn_cursor
@@ -68,7 +68,6 @@ load_eos:
 	cli
 	hlt
 	jmp .hang
-
 
 fb_scroll:
 	push esi
@@ -88,28 +87,60 @@ fb_scroll:
 	pop esi
 	ret
 
-fb_newline:
+;-----------------------------------------------------------------------
+; prn_* family: framebuffer output primitives
+;
+; cursor convention (supersedes callee-preserve for EDI within family):
+;
+;   EDI in:  current cursor, absolute fb byte address
+;       out: advanced past output written
+;   EAX,ECX,EDX  trashed unless noted per routine
+;   ESI,EBX,EBP  preserved
+;
+; [fb_mem_addr] is canonical ONLY outside a print sequence. the
+; outermost caller leases: load EDI before first prn_* call, store
+; EDI back after last. no prn_* routine touches [fb_mem_addr].
+;
+; routines borrowing EDI internally must bracket it and must not
+; call prn_* while the bracket is open.
+;
+; fb_scroll preserves EDI but moves the screen under it; callers
+; detecting scroll own the one-row correction. see prn_byte.
+;-----------------------------------------------------------------------
+
+; dl contains byte to print
+prn_byte:
+	cmp edi, FB_SCROLL_BOUNDARY_ADDR
+	jb .skip_scroll
+	push edx
+	call fb_scroll
+	pop edx
+	; move cursor back on screen
+	sub edi, LINE_LEN_BYTES
+	add edi, [fb_indent_bytes]
+.skip_scroll:
+	mov byte [edi], dl
+	mov byte [edi+1], BLACK_TEXT
+	add edi, 2
+	ret
+
+prn_newline:
 	push ebx
-	mov eax, [fb_mem_addr]
-	push eax
+	mov eax, edi
 	; bytes since beginning of fb
 	sub eax, FB_MMIO_ADDR
 	mov ebx, LINE_LEN_BYTES
 	xor edx, edx
 	div ebx
-	sub ebx, edx ; bytes to next row
-	pop eax
-	add eax, ebx ; new cursor addr
-	cmp eax, FB_SCROLL_BOUNDARY_ADDR
+	sub ebx, edx ; bytes until next row
+	add edi, ebx ; new cursor addr
+	cmp edi, FB_SCROLL_BOUNDARY_ADDR
 	jb .skip_scroll
-	push eax
 	call fb_scroll
-	pop eax
 	; move cursor back on screen
-	sub eax, LINE_LEN_BYTES
+	sub edi, LINE_LEN_BYTES
 .skip_scroll:
-	add eax, [fb_indent_bytes]
-	mov [fb_mem_addr], eax
+	add edi, [fb_indent_bytes]
 	pop ebx
 	ret
 
