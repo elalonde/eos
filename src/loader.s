@@ -104,8 +104,12 @@ fb_scroll:
 ; routines borrowing EDI internally must bracket it and must not
 ; call prn_* while the bracket is open.
 ;
-; fb_scroll preserves EDI but moves the screen under it; callers
-; detecting scroll own the one-row correction. see prn_byte.
+; per-routine:
+;   prn_msg    esi in: msg base. out: advanced past bytes printed.
+;              ecx in: byte count. trashed.
+;   prn_cstr   esi in: cstr base. out: past the terminating nul.
+;   fb_scroll  preserves edi but moves the screen under it; callers
+;              detecting scroll own the one-row correction. see prn_byte.
 ;-----------------------------------------------------------------------
 
 ; dl contains byte to print
@@ -136,6 +140,19 @@ prn_msg:
 	dec ecx
 	jnz .prn_loop
 .done:
+	ret
+
+prn_cstr:
+.prn_loop:
+	mov dl, [esi]
+	test dl, dl
+	jz .end
+	call prn_byte
+	inc esi
+	jmp .prn_loop
+.end:
+	; inc past nul
+	inc esi
 	ret
 
 prn_newline:
