@@ -10,6 +10,7 @@ ISO = $(BUILD_DIR)/eos.iso
 KERNEL = $(BOOT_BUILD_DIR)/kernel.elf
 GRUB_CFG = $(GRUB_BUILD_DIR)/grub.cfg
 GRUB_SRC = $(GRUB_SRC_DIR)/grub.cfg
+INCS := $(wildcard $(SRC_DIR)/*.inc)
 SRCS := $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/*.s)
 OBJS := $(patsubst $(SRC_DIR)/%.s,$(BUILD_DIR)/%.o,$(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS)))
 UT_OVERLAY_BINS := \
@@ -28,7 +29,7 @@ CFLAGS = -m32 -nostdlib -nostdinc -fno-builtin -fno-stack-protector \
 	-nostartfiles -nodefaultlibs -Wall -Wextra -Werror
 LDFLAGS = -T $(SRC_DIR)/link.ld -melf_i386
 AS = nasm
-ASFLAGS = -f elf
+ASFLAGS = -f elf -Isrc
 
 .PHONY: all run debug clean gdb test testclean
 
@@ -75,7 +76,7 @@ $(GRUB_CFG): $(GRUB_SRC) | $(GRUB_BUILD_DIR)
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.s | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.s $(INCS) | $(BUILD_DIR)
 	$(AS) $(ASFLAGS) $< -o $@
 
 $(BOOT_BUILD_DIR) $(GRUB_BUILD_DIR) $(BUILD_DIR) $(ISO_BUILD_DIR) \
