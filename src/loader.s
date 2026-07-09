@@ -83,7 +83,7 @@ load_eos:
 ; prn_* routines handle framebuffer output.
 ;
 ; EDI is the absolute byte address of the framebuffer cursor. It
-; is advanced on return to new cursor location. all routines will scroll
+; is advanced to new cursor location on return. All routines will scroll
 ; if necessary and honor indentation via [fb_indent_bytes].
 ;
 ; callers lease edi from [fb_mem_addr] and store it back when printing
@@ -91,9 +91,29 @@ load_eos:
 ;
 ; eax/ecx/edx trashed unless noted. ebx/ebp/esi preserved.
 ;
-; prn_byte      dl = byte to print.
-; prn_msg       esi = base (preserved), ecx = count (consumed).
-; prn_cstr      esi = cstr (preserved). eax points past the nul.
+; prn_byte        print a byte to framebuffer.
+;                 dl = byte to print.
+;
+; prn_msg         print a string to framebuffer.
+;                 esi = base (preserved), ecx = count (consumed).
+;
+; prn_cstr        print a cstring to framebuffer.
+;                 esi = cstr (preserved). on return, eax points past the nul.
+;
+; prn_dec         print a register as a decimal value to framebuffer. no
+;                 leading zeros.
+;                 eax = value (consumed)
+;
+; prn_ascii_pair  prints the contents of dh,dl in big-endian order.
+;                 dh,dl = ascii chars (consumed).
+;
+; prn_hex_num     prints a register as a 0x-prefixed 8-digit hexadecimal
+;                 number.
+;                 eax = value (preserved).
+;
+; byte_to_hex     convert a byte into ascii hexadecimal representation.
+;                 eax = value, ecx = byte index. both preserved.
+;                 returns ascii pair in dh,dl. prints nothing.
 ;-----------------------------------------------------------------------
 prn_byte:
 	cmp edi, FB_SCROLL_BOUNDARY_ADDR
@@ -140,6 +160,86 @@ prn_cstr:
 	inc eax
 	ret
 
+byte_to_hex:
+	push eax
+	push ecx
+	; byte index to shift length
+	shl ecx, 3
+	; move to index 0
+	shr eax, cl
+
+	xor edx, edx
+	mov dl, al
+	; high nibble
+	shr dl, 4
+
+	and eax, 0x0000000F
+	cmp al, 0xA
+	jb .lower_lt_ten
+	add al, HEX_GT_TEN_ASCII_OFFSET
+	jmp .lower_done
+.lower_lt_ten:
+	add al, HEX_LT_TEN_ASCII_OFFSET
+.lower_done:
+	cmp dl, 0xA
+	jb .upper_lt_ten
+	add dl, HEX_GT_TEN_ASCII_OFFSET
+	jmp .upper_done
+.upper_lt_ten:
+	add dl, HEX_LT_TEN_ASCII_OFFSET
+.upper_done:
+	mov dh, dl
+	mov dl, al
+	pop ecx
+	pop eax
+	ret
+
+prn_hex_num:
+	mov dl, '0'
+	call prn_byte
+	mov dl, 'x'
+	call prn_byte
+
+	mov ecx, 3
+.prn_byte_loop:
+	call byte_to_hex
+	call prn_ascii_pair
+	dec ecx
+	jns .prn_byte_loop
+	ret
+
+prn_ascii_pair:
+	push edx
+	mov dl, dh
+	call prn_byte
+	pop edx
+	call prn_byte
+	ret
+
+prn_dec:
+	push ebx
+	mov ebx, 10
+	xor ecx, ecx
+.div_loop:
+	xor edx, edx
+	; edx:eax
+	div ebx
+	; store remainder
+	push edx
+	inc ecx
+	test eax, eax
+	jnz .div_loop
+	; save ecx
+	mov ebx, ecx
+.prn_digit_loop:
+	pop edx
+	add dl, '0'
+	call prn_byte
+	dec ebx
+	jnz .prn_digit_loop
+	pop ebx
+	ret
+
 ;-----------------------------------------------------------------------
 ; crtc_* routines drive the VGA CRT controller.
 ;
@@ -181,7 +281,6 @@ crtc_read_fb_addr:
 crtc_write_cursor:
 	; tmp space
 	push ebx
-
 	; convert mem addr to crtc cell offset
 	mov ecx, edi
 	sub ecx, FB_MMIO_ADDR
@@ -196,7 +295,6 @@ crtc_write_cursor:
 	mov ecx, ebx
 	mov al, CRTC_REG_CURS_LOC_LOW
 	call crtc_write
-
 	pop ebx
 	ret
 
