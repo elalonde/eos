@@ -1,4 +1,5 @@
 %include "fb.inc"
+%include "multiboot.inc"
 global load_eos                 ; the entry symbol for ELF
 extern __bss_start              ; defined by linker
 extern __bss_end
@@ -13,8 +14,6 @@ FLAGS        equ 0x0            ; multiboot flags
 CHECKSUM     equ -MAGIC_NUMBER  ; calculate the checksum
 KERNEL_STACK_SIZE equ 4096
                                 ; (magic number + checksum + flags should equal 0)
-BL_REPORT_INDENT_LEN equ 0x4
-
 section .bss
 	align 4
 kernel_stack:
@@ -58,7 +57,8 @@ load_eos:
 	mov [fb_mem_addr], edi
 	call crtc_write_cursor
 
-	;call prn_bl_rpt
+	; print multiboot report contents to screen
+	call prn_mb_rpt
 
 .hang:
 	; bye bye
