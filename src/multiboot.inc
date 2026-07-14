@@ -1,7 +1,6 @@
 %ifndef MULTIBOOT_INC
 %define MULTIBOOT_INC
 
-
 ;-----------------------------------------------------------------------
 ;
 ; mb_prn_rpt: prints GRUB multiboot report contents to screen

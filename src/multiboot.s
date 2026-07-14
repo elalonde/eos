@@ -1,14 +1,18 @@
 %include "multiboot.inc"
-%include "fb.inc"
 
-global prn_mb_rpt
-extern fb_mem_addr
+global mb_prn_rpt
 
-MB_RPT_INDENT_LEN equ 0x4
+extern crtc_write_cursor ; crtc.s
+extern fb_mem_addr       ; fb.s
+extern fb_skip_line      ; fb.s
+extern fb_indent_bytes   ; fb.s
+extern prn_msg           ; prn.s
+
+MB_RPT_INDENT_BYTES equ 0x8
 
 section .rodata
-	bl_pre db "GRUB multiboot report:"
-	bl_pre_len equ $-bl_pre
+	mb_pre db "GRUB multiboot report:"
+	mb_pre_len equ $-mb_pre
 	lower_msg db "Lower memory: "
 	lower_len equ $-lower_msg
 	upper_msg db "Upper memory: "
@@ -36,20 +40,26 @@ section .rodata
 	elf_sect_table_str_idx_msg db "ELF section header string table index: "
 	elf_sect_table_str_idx_msg_len equ $-elf_sect_table_str_idx_msg
 	mmap_length_msg db "Memory map length: "
-	mmap_legth_msg_len equ $-elf_sect_table_mmap_msg
-	mmap_addr_msg "Memory map start address: "
+	mmap_legth_msg_len equ $-mmap_length_msg
+	mmap_addr_msg db "Memory map start address: "
 	mmap_addr_msg_len equ $-mmap_addr_msg
 
 section .text
 
-prn_mb_rpt:
+mb_prn_rpt:
 	mov edi, [fb_mem_addr]
-	mov dword [fb_indent_len], MB_RPT_INDENT_LEN
 
-	mov edx, bl_pre
-	mov eax, bl_pre_len
+	call fb_skip_line
+	mov esi, mb_pre
+	mov ecx, mb_pre_len
 	call prn_msg
 
+	; indent lines with report contents
+	mov dword [fb_indent_bytes], MB_RPT_INDENT_BYTES
 
+	mov dword [fb_indent_bytes], 0x0
+
+	; close lease
 	mov [fb_mem_addr], edi
+	call crtc_write_cursor
 	ret
