@@ -25,9 +25,6 @@
 ;                 leading zeros.
 ;                 eax = value (consumed)
 ;
-; prn_ascii_pair  prints the contents of dh,dl in big-endian order.
-;                 dh,dl = ascii chars (consumed).
-;
 ; prn_hex_num     prints a register as a 0x-prefixed 8-digit hexadecimal
 ;                 number.
 ;                 eax = value (preserved).

@@ -26,13 +26,14 @@ section .rodata
 	bl_pre db "GRUB multiboot report:"
 	bl_pre_len equ $-bl_pre
 
-section .text
+section .multiboot
 	align 4
 	; write multiboot flags and checksum
 	dd MAGIC_NUMBER
 	dd FLAGS
 	dd CHECKSUM
 
+section .text
 load_eos:
 	; zero out .bss region
 	cld

@@ -6,6 +6,7 @@ global prn_msg
 global prn_cstr
 global prn_hexnum
 global prn_dec
+global prn_hexnum
 
 extern byte_to_hex
 extern fb_scroll
@@ -71,6 +72,10 @@ prn_hex_num:
 	jns .prn_byte_loop
 	ret
 
+; prn_ascii_pair  prints the contents of dh,dl in big-endian order.
+;                 dh,dl = ascii chars (consumed).
+;                 eax/ecx/edx trashed
+;                 ebx/ebp/esi preserved.
 prn_ascii_pair:
 	push edx
 	mov dl, dh
