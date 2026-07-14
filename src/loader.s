@@ -1,18 +1,20 @@
-%include "fb.inc"
 %include "multiboot.inc"
-global load_eos                 ; the entry symbol for ELF
-extern __bss_start              ; defined by linker
-extern __bss_end
-extern fb_mem_addr
-extern crtc_write_scanline
-extern crtc_read_fb_addr
-extern crtc_write_cursor
-extern prn_msg
+global load_eos             ; the entry symbol for ELF
 
+extern __bss_start          ; link.ld
+extern __bss_end            ; link.ld
+extern crtc_write_scanline  ; crtc.s
+extern crtc_read_fb_addr    ; crtc.s
+extern crtc_write_cursor    ; crtc.s
+extern fb_mem_addr          ; fb.s
+extern fb_skip_line         ; fb.s
+extern mb_prn_rpt           ; multiboot.s
+extern prn_msg              ; prn.s
+
+KERNEL_STACK_SIZE equ 4096
 MAGIC_NUMBER equ 0x1BADB002     ; define the magic number constant
 FLAGS        equ 0x0            ; multiboot flags
 CHECKSUM     equ -MAGIC_NUMBER  ; calculate the checksum
-KERNEL_STACK_SIZE equ 4096
                                 ; (magic number + checksum + flags should equal 0)
 section .bss
 	align 4
@@ -22,8 +24,6 @@ kernel_stack:
 section .rodata
 	welcome db "Welcome to eos."
 	welcome_len equ $-welcome
-	bl_pre db "GRUB multiboot report:"
-	bl_pre_len equ $-bl_pre
 
 section .multiboot
 	align 4
@@ -51,18 +51,19 @@ load_eos:
 	mov [fb_mem_addr], eax
 	mov edi, eax
 
+	call fb_skip_line
 	mov esi, welcome
 	mov ecx, welcome_len
 	call prn_msg
+	call fb_skip_line
+	; close lease
 	mov [fb_mem_addr], edi
 	call crtc_write_cursor
 
-	; print multiboot report contents to screen
-	call prn_mb_rpt
-
+	; generate multiboot report
+	call mb_prn_rpt
 .hang:
 	; bye bye
 	cli
 	hlt
 	jmp .hang
-
