@@ -15,7 +15,6 @@ byte_to_hex:
 	mov dl, al
 	; high nibble
 	shr dl, 4
-
 	and eax, 0x0000000F
 	cmp al, 0xA
 	jb .lower_lt_ten

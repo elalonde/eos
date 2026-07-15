@@ -4,9 +4,8 @@
 global prn_byte
 global prn_msg
 global prn_cstr
-global prn_hexnum
+global prn_hex_dword
 global prn_dec
-global prn_hexnum
 
 extern byte_to_hex
 extern fb_scroll
@@ -58,7 +57,7 @@ prn_cstr:
 	inc eax
 	ret
 
-prn_hex_num:
+prn_hex_dword:
 	mov dl, '0'
 	call prn_byte
 	mov dl, 'x'
