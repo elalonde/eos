@@ -3,7 +3,7 @@
 ;-----------------------------------------------------------------------
 ; prn_* routines handle framebuffer output.
 ;
-; EDI is the absolute byte address of the framebuffer cursor. It
+; edi is the absolute byte address of the framebuffer cursor. It
 ; is advanced to new cursor location on return. All routines will scroll
 ; if necessary and honor indentation via [fb_indent_bytes].
 ;
@@ -14,6 +14,7 @@
 ;
 ; prn_byte        print a byte to framebuffer.
 ;                 dl = byte to print.
+;                 preserved: eax/ebp/ebx/ecx/edx/esi
 ;
 ; prn_msg         print a string to framebuffer.
 ;                 esi = base (preserved), ecx = count (consumed).

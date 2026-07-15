@@ -12,7 +12,12 @@ section .bss
 
 section .text
 fb_scroll:
+	push eax
+	push ebx
+	push ecx
+	push edx
 	push esi
+
 	mov esi, FB_MMIO_ADDR+LINE_LEN_BYTES
 	mov edi, FB_MMIO_ADDR
 	mov ecx, FB_SCROLL_LEN_BYTES
@@ -30,6 +35,10 @@ fb_scroll:
 	; honor global indent
 	add edi, [fb_indent_bytes]
 	pop esi
+	pop edx
+	pop ecx
+	pop ebx
+	pop eax
 	ret
 
 fb_skip_line:

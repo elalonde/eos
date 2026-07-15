@@ -17,9 +17,7 @@ extern fb_mem_addr
 prn_byte:
 	cmp edi, FB_SCROLL_BOUNDARY_ADDR
 	jb .skip_scroll
-	push edx
 	call fb_scroll
-	pop edx
 .skip_scroll:
 	mov byte [edi], dl
 	mov byte [edi+1], FB_ATTR_GREY_ON_BLACK
@@ -33,9 +31,7 @@ prn_msg:
 	je .done
 .prn_loop:
 	mov dl, [esi]
-	push ecx
 	call prn_byte
-	pop ecx
 	inc esi
 	cmp esi, ecx
 	jb .prn_loop
@@ -49,9 +45,7 @@ prn_cstr:
 	mov dl, [eax]
 	test dl, dl
 	jz .end
-	push eax
 	call prn_byte
-	pop eax
 	inc eax
 	jmp .prn_loop
 .end:
@@ -86,29 +80,20 @@ prn_hex_byte:
 ;                   eax = value (preserved)
 ;                   ecx = index (consumed)
 prn_hex_internal:
-	push eax
-	push ecx
 	mov dl, '0'
 	call prn_byte
 	mov dl, 'x'
 	call prn_byte
-	pop ecx
-	pop eax
 .prn_byte_loop:
-	push ecx
-	push eax
 	call byte_to_hex
 	call prn_ascii_pair
-	pop eax
-	pop ecx
 	dec ecx
 	jns .prn_byte_loop
 	ret
 
 ; prn_ascii_pair  prints the contents of dh,dl in big-endian order.
 ;                 dh,dl = ascii chars (consumed).
-;                 eax/ecx/edx trashed
-;                 ebx/ebp/esi preserved.
+;                 eax/ecx/ebx/ebp/esi preserved.
 prn_ascii_pair:
 	push edx
 	mov dl, dh

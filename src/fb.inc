@@ -7,12 +7,13 @@
 ; is updated to new cursor location. routines honor indentation via
 ; [fb_indent_bytes].
 ;
-; register contract:
+; register contract, unless otherwise specified:
 ;     trashed: eax/ecx/edx
 ;     preserved: ebx/ebp/esi
 ;
 ; fb_scroll:    takes no arguments and moves entire screen up one row. final
 ;               row is blank. EDI is updated to new cursor placement.
+;               preserved: eax/ebp/ebx/ecx/edx/esi
 ;
 ; fb_skip_line: takes EDI in, scrolls if necessary, and updates EDI to new
 ;               cursor placement.
