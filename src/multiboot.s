@@ -6,9 +6,18 @@ extern crtc_write_cursor ; crtc.s
 extern fb_mem_addr       ; fb.s
 extern fb_skip_line      ; fb.s
 extern fb_indent_bytes   ; fb.s
+extern byte_to_hex       ; util.s
+extern prn_byte          ; prn.s
+extern prn_hex_byte      ; prn.s
+extern prn_dec           ; prn.s
 extern prn_msg           ; prn.s
 
 MB_RPT_INDENT_BYTES equ 0x8
+FLG_MEM equ 0x1
+FLG_BOOT_DEV equ 0x2
+FLG_CMDLINE equ 0x4
+BOOT_DEV_OFF equ 0xc
+ASCII_FF equ 0x4646
 
 section .rodata
 	mb_pre db "GRUB multiboot report:"
@@ -17,6 +26,8 @@ section .rodata
 	lower_len equ $-lower_msg
 	upper_msg db "Upper memory: "
 	upper_len equ $-upper_msg
+	kb_msg db " KB"
+	kb_len equ $-kb_msg
 	boot_dev_msg db "Boot device: Drive "
 	boot_dev_len equ $-boot_dev_msg
 	cmdline_msg db "cmdline: "
@@ -47,6 +58,7 @@ section .rodata
 section .text
 
 mb_prn_rpt:
+	; open lease
 	mov edi, [fb_mem_addr]
 
 	call fb_skip_line
@@ -57,9 +69,81 @@ mb_prn_rpt:
 	; indent lines with report contents
 	mov dword [fb_indent_bytes], MB_RPT_INDENT_BYTES
 
+	test byte [ebx], FLG_MEM
+	jz .skipmem
+	; lower mem
+	call fb_skip_line
+	mov esi, lower_msg
+	mov ecx, lower_len
+	call prn_msg
+	mov eax, [ebx+4]
+	call prn_dec
+	mov esi, kb_msg
+	mov ecx, kb_len
+	call prn_msg
+	; upper mem
+	call fb_skip_line
+	mov esi, upper_msg
+	mov ecx, upper_len
+	call prn_msg
+	mov eax, [ebx+8]
+	call prn_dec
+	mov esi, kb_msg
+	mov ecx, kb_len
+	call prn_msg
+.skipmem:
+	test byte [ebx], FLG_BOOT_DEV
+	jz .skipboot
+	call fb_skip_line
+	mov esi, boot_dev_msg
+	mov ecx, boot_dev_len
+	call prn_msg
+	mov eax, [ebx+12]
+	call prn_boot_dev_nfo
+.skipboot:
+
+	; unset indent
 	mov dword [fb_indent_bytes], 0x0
 
 	; close lease
 	mov [fb_mem_addr], edi
 	call crtc_write_cursor
+	ret
+
+prn_boot_dev_nfo:
+	; print boot device
+	mov eax, [ebx+BOOT_DEV_OFF]
+	mov ecx, 3
+	call prn_hex_byte
+
+	; print boot partitions, if any
+	mov ecx, 2
+.prn_partitions_loop:
+	; convert partition to hex
+	call byte_to_hex
+	cmp dx, ASCII_FF
+	je .loop_done
+	cmp ecx, 2
+	jne .prn_period
+	mov dl, ' '
+	call prn_byte
+	mov dl, '('
+	call prn_byte
+	jmp .prn_partition
+.prn_period:
+	mov dl, '.'
+	call prn_byte
+.prn_partition:
+	push ecx
+	call prn_hex_byte
+	pop ecx
+	dec ecx
+	jns .prn_partitions_loop
+.loop_done:
+	; iff sentinel encountered on first iteration
+	cmp ecx, 2
+	je .skip_close_paren
+	mov dl, ')'
+	call prn_byte
+.skip_close_paren:
 	ret

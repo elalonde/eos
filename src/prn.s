@@ -79,6 +79,7 @@ prn_hex_byte:
 ;                   order, as a 0x-prefixed hexadecimal number.
 ;                   eax = value (preserved)
 ;                   ecx = index (consumed)
+;                   trashed: edx
 prn_hex_internal:
 	mov dl, '0'
 	call prn_byte

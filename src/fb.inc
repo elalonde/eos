@@ -3,7 +3,7 @@
 ;-----------------------------------------------------------------------
 ; fb_* routines control screen and cursor mechanics.
 ;
-; EDI is the absolute byte address of the framebuffer cursor, and
+; edi is the absolute byte address of the framebuffer cursor, and
 ; is updated to new cursor location. routines honor indentation via
 ; [fb_indent_bytes].
 ;
@@ -23,10 +23,10 @@
 ;
 ; routines:
 ; fb_scroll:    takes no arguments and moves entire screen up one row. final
-;               row is blank. EDI is updated to new cursor placement.
+;               row is blank. edi is updated to new cursor placement.
 ;               preserved: eax/ebp/ebx/ecx/edx/esi
 ;
-; fb_skip_line: takes EDI in, scrolls if necessary, and updates EDI to new
+; fb_skip_line: takes edi in, scrolls if necessary, and updates edi to new
 ;               cursor placement.
 ;
 ;-----------------------------------------------------------------------
