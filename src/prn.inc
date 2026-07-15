@@ -28,5 +28,9 @@
 ; prn_hex_dword   prints a register as a 0x-prefixed 8-digit hexadecimal
 ;                 number.
 ;                 eax = value (preserved).
+;
+; prn_hex_word    prints the lower word portion of a register as a
+;                 0x-prefixed 4-digit hexadecimal number.
+;                 eax = value (preserved).
 ;-----------------------------------------------------------------------
 %endif

@@ -4,9 +4,9 @@
 global prn_byte
 global prn_msg
 global prn_cstr
-global prn_hexnum
 global prn_dec
-global prn_hexnum
+global prn_hex_dword
+global prn_hex_word
 
 extern byte_to_hex
 extern fb_scroll
@@ -59,15 +59,34 @@ prn_cstr:
 	ret
 
 prn_hex_dword:
+	mov ecx, 3
+	jmp prn_hex_word_internal
+
+prn_hex_word:
+	mov ecx, 1
+	jmp prn_hex_word_internal
+
+; prn_hex_word_internal  prints the desired portion of eax, starting
+;                        at index specified in ecx, in big-endian
+;                        order, as a 0x-prefixed hexadecimal number.
+;                        eax = value (preserved)
+;                        ecx = index (consumed)
+prn_hex_word_internal:
+	push eax
+	push ecx
 	mov dl, '0'
 	call prn_byte
 	mov dl, 'x'
 	call prn_byte
-
-	mov ecx, 3
+	pop ecx
+	pop eax
 .prn_byte_loop:
+	push ecx
+	push eax
 	call byte_to_hex
 	call prn_ascii_pair
+	pop eax
+	pop ecx
 	dec ecx
 	jns .prn_byte_loop
 	ret
