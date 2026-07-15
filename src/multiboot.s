@@ -9,6 +9,7 @@ extern fb_indent_bytes   ; fb.s
 extern byte_to_hex       ; util.s
 extern prn_byte          ; prn.s
 extern prn_hex_byte      ; prn.s
+extern prn_cstr          ; prn.s
 extern prn_dec           ; prn.s
 extern prn_msg           ; prn.s
 
@@ -101,6 +102,20 @@ mb_prn_rpt:
 	mov eax, [ebx+12]
 	call prn_boot_dev_nfo
 .skipboot:
+	; cmdline
+	; test flag and also for empty string
+	test byte [ebx], FLG_CMDLINE
+	jz .skipcmdline
+	mov  eax, [ebx+16]
+	cmp byte [eax], 0
+	jz .skipcmdline
+	call fb_skip_line
+	mov esi, cmdline_msg
+	mov ecx, cmdline_msg_len
+	call prn_msg
+	mov esi, [ebx+16]
+	call prn_cstr
+.skipcmdline:
 
 	; unset indent
 	mov dword [fb_indent_bytes], 0x0
