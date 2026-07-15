@@ -60,18 +60,18 @@ prn_cstr:
 
 prn_hex_dword:
 	mov ecx, 3
-	jmp prn_hex_word_internal
+	jmp prn_hex_internal
 
 prn_hex_word:
 	mov ecx, 1
-	jmp prn_hex_word_internal
+	jmp prn_hex_internal
 
-; prn_hex_word_internal  prints the desired portion of eax, starting
-;                        at index specified in ecx, in big-endian
-;                        order, as a 0x-prefixed hexadecimal number.
-;                        eax = value (preserved)
-;                        ecx = index (consumed)
-prn_hex_word_internal:
+; prn_hex_internal  prints the desired portion of eax, starting
+;                   at index specified in ecx, in big-endian
+;                   order, as a 0x-prefixed hexadecimal number.
+;                   eax = value (preserved)
+;                   ecx = index (consumed)
+prn_hex_internal:
 	push eax
 	push ecx
 	mov dl, '0'
