@@ -25,7 +25,7 @@
 ;                 leading zeros.
 ;                 eax = value (consumed)
 ;
-; prn_hex_num     prints a register as a 0x-prefixed 8-digit hexadecimal
+; prn_hex_dword   prints a register as a 0x-prefixed 8-digit hexadecimal
 ;                 number.
 ;                 eax = value (preserved).
 ;-----------------------------------------------------------------------

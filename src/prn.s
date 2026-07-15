@@ -58,7 +58,7 @@ prn_cstr:
 	inc eax
 	ret
 
-prn_hex_num:
+prn_hex_dword:
 	mov dl, '0'
 	call prn_byte
 	mov dl, 'x'
