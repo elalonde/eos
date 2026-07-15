@@ -25,6 +25,11 @@
 ;                 leading zeros.
 ;                 eax = value (consumed)
 ;
+; prn_hex_byte    print a single byte at an arbitrary byte index within eax
+;                 as a 0x-prefixed 2-digit hexadecimal number.
+;                 eax = value (preserved).
+;                 ecx = index (consumed)
+;
 ; prn_hex_dword   prints a register as a 0x-prefixed 8-digit hexadecimal
 ;                 number.
 ;                 eax = value (preserved).

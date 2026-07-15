@@ -5,6 +5,7 @@ global prn_byte
 global prn_msg
 global prn_cstr
 global prn_dec
+global prn_hex_byte
 global prn_hex_dword
 global prn_hex_word
 
@@ -65,6 +66,19 @@ prn_hex_dword:
 prn_hex_word:
 	mov ecx, 1
 	jmp prn_hex_internal
+
+prn_hex_byte:
+	push eax
+	; convert from byte index to shift length
+	shl ecx, 3
+
+	; move target within eax to low byte
+	shr eax, cl
+
+	mov ecx, 0
+	call prn_hex_internal
+	pop eax
+	ret
 
 ; prn_hex_internal  prints the desired portion of eax, starting
 ;                   at index specified in ecx, in big-endian
