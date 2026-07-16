@@ -19,6 +19,7 @@ FLG_MEM equ 0x1
 FLG_BOOT_DEV equ 0x2
 FLG_CMDLINE equ 0x4
 FLG_MODULES equ 0x8
+FLG_ELF_SECTS equ 0x20
 BOOT_DEV_OFF equ 0xc
 ASCII_FF equ 0x4646
 
@@ -48,7 +49,7 @@ section .rodata
 	module_args_msg_len equ $-module_args_msg
 	elf_sect_msg db "ELF section information: "
 	elf_sect_len equ $-elf_sect_msg
-	elf_h_cnt_msg db "ELF header count: "
+	elf_h_cnt_msg db "ELF section header count: "
 	elf_h_cnt_msg_len equ $-elf_h_cnt_msg
 	elf_sect_entry_siz_msg db "ELF section header entry size: "
 	elf_sect_entry_siz_msg_len equ $-elf_sect_entry_siz_msg
@@ -140,6 +141,12 @@ mb_prn_rpt:
 	mov eax, [ebx+0x18]
 	call prn_boot_modules
 .skipmodules:
+	; elf section headers
+	test byte [mb_flags], FLG_ELF_SECTS
+	jz .skip_elf_sects
+	call fb_skip_line
+	call prn_elf_sects
+.skip_elf_sects:
 
 	; unset indent
 	mov dword [fb_indent_bytes], 0x0
@@ -148,6 +155,39 @@ mb_prn_rpt:
 	mov [fb_mem_addr], edi
 	call crtc_write_cursor
 	pop ebx
+	ret
+
+; print elf section header information
+; ebx contains the multiboot report (preserved)
+; preserved: ebx/ebp/edi
+; trashed: eax/ecx/esi
+prn_elf_sects:
+	mov esi, elf_h_cnt_msg
+	mov ecx, elf_h_cnt_msg_len
+	call prn_msg
+	mov eax, [ebx+0x1c]
+	call prn_dec
+	call fb_skip_line
+
+	mov esi, elf_sect_entry_siz_msg
+	mov ecx, elf_sect_entry_siz_msg_len
+	call prn_msg
+	mov eax, [ebx+0x20]
+	call prn_dec
+	call fb_skip_line
+
+	mov esi, elf_sect_table_addr_msg
+	mov ecx, elf_sect_table_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+0x24]
+	call prn_hex_dword
+	call fb_skip_line
+
+	mov esi, elf_sect_table_str_idx_msg
+	mov ecx, elf_sect_table_str_idx_msg_len
+	call prn_msg
+	mov eax, [ebx+0x28]
+	call prn_dec
 	ret
 
 ; eax contains the boot device information (preserved)
@@ -223,12 +263,10 @@ prn_boot_modules:
 
 	; offset 12 is reserved
 	add ebx, 8
-
-	call fb_skip_line
 	pop ecx
 	dec ecx
 	jnz .prn_module_loop
 
-	sub dword [fb_indent_bytes], 4
+	sub dword [fb_indent_bytes], 8
 	pop ebx
 	ret
