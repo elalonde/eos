@@ -74,8 +74,8 @@ prn_hex_byte:
 	pop eax
 	ret
 
-; prn_hex_internal  prints the desired portion of eax, starting
-;                   at index specified in ecx, in big-endian
+; prn_hex_internal  prints the desired byte portion of eax,
+;                   starting at index specified in ecx, in big-endian
 ;                   order, as a 0x-prefixed hexadecimal number.
 ;                   eax = value (preserved)
 ;                   ecx = index (consumed)

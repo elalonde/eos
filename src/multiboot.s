@@ -9,6 +9,7 @@ extern fb_indent_bytes   ; fb.s
 extern byte_to_hex       ; util.s
 extern prn_byte          ; prn.s
 extern prn_hex_byte      ; prn.s
+extern prn_hex_dword     ; prn.s
 extern prn_cstr          ; prn.s
 extern prn_dec           ; prn.s
 extern prn_msg           ; prn.s
@@ -17,8 +18,12 @@ MB_RPT_INDENT_BYTES equ 0x8
 FLG_MEM equ 0x1
 FLG_BOOT_DEV equ 0x2
 FLG_CMDLINE equ 0x4
+FLG_MODULES equ 0x8
 BOOT_DEV_OFF equ 0xc
 ASCII_FF equ 0x4646
+
+section .bss
+	mb_flags resd 1
 
 section .rodata
 	mb_pre db "GRUB multiboot report:"
@@ -59,6 +64,10 @@ section .rodata
 section .text
 
 mb_prn_rpt:
+	push ebx
+	mov eax, [ebx]
+	mov [mb_flags], eax
+
 	; open lease
 	mov edi, [fb_mem_addr]
 
@@ -70,14 +79,14 @@ mb_prn_rpt:
 	; indent lines with report contents
 	mov dword [fb_indent_bytes], MB_RPT_INDENT_BYTES
 
-	test byte [ebx], FLG_MEM
+	test byte [mb_flags], FLG_MEM
 	jz .skipmem
 	; lower mem
 	call fb_skip_line
 	mov esi, lower_msg
 	mov ecx, lower_len
 	call prn_msg
-	mov eax, [ebx+4]
+	mov eax, [ebx+0x4]
 	call prn_dec
 	mov esi, kb_msg
 	mov ecx, kb_len
@@ -87,35 +96,50 @@ mb_prn_rpt:
 	mov esi, upper_msg
 	mov ecx, upper_len
 	call prn_msg
-	mov eax, [ebx+8]
+	mov eax, [ebx+0x8]
 	call prn_dec
 	mov esi, kb_msg
 	mov ecx, kb_len
 	call prn_msg
 .skipmem:
-	test byte [ebx], FLG_BOOT_DEV
+	test byte [mb_flags], FLG_BOOT_DEV
 	jz .skipboot
 	call fb_skip_line
 	mov esi, boot_dev_msg
 	mov ecx, boot_dev_len
 	call prn_msg
-	mov eax, [ebx+12]
+	mov eax, [ebx+0xc]
 	call prn_boot_dev_nfo
 .skipboot:
 	; cmdline
 	; test flag and also for empty string
-	test byte [ebx], FLG_CMDLINE
+	test byte [mb_flags], FLG_CMDLINE
 	jz .skipcmdline
-	mov  eax, [ebx+16]
+	mov eax, [ebx+0x10]
 	cmp byte [eax], 0
 	jz .skipcmdline
 	call fb_skip_line
 	mov esi, cmdline_msg
 	mov ecx, cmdline_msg_len
 	call prn_msg
-	mov esi, [ebx+16]
+	mov esi, [ebx+0x10]
 	call prn_cstr
 .skipcmdline:
+	; loaded modules
+	test byte [mb_flags], FLG_MODULES
+	jz .skipmodules
+	call fb_skip_line
+	mov esi, modules_msg
+	mov ecx, modules_msg_len
+	call prn_msg
+	mov eax, [ebx+0x14]
+	call prn_dec
+	mov ecx, [ebx+0x14]
+	test ecx, ecx
+	jz .skipmodules
+	mov eax, [ebx+0x18]
+	call prn_boot_modules
+.skipmodules:
 
 	; unset indent
 	mov dword [fb_indent_bytes], 0x0
@@ -123,11 +147,12 @@ mb_prn_rpt:
 	; close lease
 	mov [fb_mem_addr], edi
 	call crtc_write_cursor
+	pop ebx
 	ret
 
+; eax contains the boot device information (preserved)
 prn_boot_dev_nfo:
 	; print boot device
-	mov eax, [ebx+BOOT_DEV_OFF]
 	mov ecx, 3
 	call prn_hex_byte
 
@@ -161,4 +186,49 @@ prn_boot_dev_nfo:
 	mov dl, ')'
 	call prn_byte
 .skip_close_paren:
+	ret
+
+; eax is the address of the module array (consumed)
+; ecx has count of modules (consumed)
+; precondition: ecx >= 1
+prn_boot_modules:
+	push ebx
+	mov ebx, eax
+	; increase visual indent
+	add dword [fb_indent_bytes], MB_RPT_INDENT_BYTES
+.prn_module_loop:
+	push ecx
+	call fb_skip_line
+	mov esi, module_start_addr_msg
+	mov ecx, module_start_addr_msg_len
+	call prn_msg
+	mov eax, [ebx]
+	call prn_hex_dword
+
+	add ebx, 4
+	call fb_skip_line
+	mov esi, module_end_addr_msg
+	mov ecx, module_end_addr_msg_len
+	call prn_msg
+	mov eax, [ebx]
+	call prn_hex_dword
+
+	add ebx, 4
+	call fb_skip_line
+	mov esi, module_args_msg
+	mov ecx, module_args_msg_len
+	call prn_msg
+	mov esi, [ebx]
+	call prn_cstr
+
+	; offset 12 is reserved
+	add ebx, 8
+
+	call fb_skip_line
+	pop ecx
+	dec ecx
+	jnz .prn_module_loop
+
+	sub dword [fb_indent_bytes], 4
+	pop ebx
 	ret
