@@ -32,11 +32,17 @@
 ;                 ecx = index (consumed)
 ;
 ; prn_hex_dword   prints a register as a 0x-prefixed 8-digit hexadecimal
-;                 number.
+;                 number. Printed in big-endian order.
 ;                 eax = value (preserved).
 ;
 ; prn_hex_word    prints the lower word portion of a register as a
-;                 0x-prefixed 4-digit hexadecimal number.
+;                 0x-prefixed 4-digit hexadecimal number. Printed in
+;                 big-endian order.
 ;                 eax = value (preserved).
+;
+; prn_hex_qword   prints the contents of two registers as a 0x-prefixed
+;                 16 digit hexadecimal number. Printed in big-endian order.
+;                 eax = lower dword value (consumed).
+;                 edx = upper dword value (consumed).
 ;-----------------------------------------------------------------------
 %endif

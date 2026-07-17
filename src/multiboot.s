@@ -10,6 +10,7 @@ extern byte_to_hex       ; util.s
 extern prn_byte          ; prn.s
 extern prn_hex_byte      ; prn.s
 extern prn_hex_dword     ; prn.s
+extern prn_hex_qword     ; prn.s
 extern prn_cstr          ; prn.s
 extern prn_dec           ; prn.s
 extern prn_msg           ; prn.s
@@ -20,6 +21,7 @@ FLG_BOOT_DEV equ 0x2
 FLG_CMDLINE equ 0x4
 FLG_MODULES equ 0x8
 FLG_ELF_SECTS equ 0x20
+FLG_MMAP_ENTRIES equ 0x40
 BOOT_DEV_OFF equ 0xc
 ASCII_FF equ 0x4646
 
@@ -33,6 +35,8 @@ section .rodata
 	lower_len equ $-lower_msg
 	upper_msg db "Upper memory: "
 	upper_len equ $-upper_msg
+	b_msg db " bytes"
+	b_msg_len equ $-b_msg
 	kb_msg db " KB"
 	kb_len equ $-kb_msg
 	boot_dev_msg db "Boot device: Drive "
@@ -58,12 +62,31 @@ section .rodata
 	elf_sect_table_str_idx_msg db "ELF section header string table index: "
 	elf_sect_table_str_idx_msg_len equ $-elf_sect_table_str_idx_msg
 	mmap_length_msg db "Memory map length: "
-	mmap_legth_msg_len equ $-mmap_length_msg
+	mmap_length_msg_len equ $-mmap_length_msg
 	mmap_addr_msg db "Memory map start address: "
 	mmap_addr_msg_len equ $-mmap_addr_msg
+	mmap_entry_siz_msg db "Memory map entry size: "
+	mmap_entry_siz_len equ $-mmap_entry_siz_msg
+	mmap_entry_addr_msg db "Memory map entry addr: "
+	mmap_entry_addr_len equ $-mmap_entry_addr_msg
+	mmap_entry_len_msg db "Memory map entry length: "
+	mmap_entry_len_msg_len equ $-mmap_entry_len_msg
+	mmap_entry_type_msg db "Memory map entry type: "
+	mmap_entry_type_msg_len equ $-mmap_entry_type_msg
+	mmap_type_avail_mem_msg db "Available RAM"
+	mmap_type_avail_mem_msg_len equ $-mmap_type_avail_mem_msg
+	mmap_type_resv_msg db "Reserved"
+	mmap_type_resv_msg_len equ $-mmap_type_resv_msg
+	mmap_type_acpi_msg db "ACPI Reclaimable"
+	mmap_type_acpi_msg_len equ $-mmap_type_acpi_msg
+	mmap_type_acpi_nvs_msg db "ACPI NVS"
+	mmap_type_acpi_nvs_msg_len equ $-mmap_type_acpi_nvs_msg
+	mmap_type_bad_ram_msg db "Bad RAM"
+	mmap_type_bad_ram_msg_len equ $-mmap_type_bad_ram_msg
+	mmap_type_unknown_msg db "Unknown"
+	mmap_type_unknown_msg_len equ $-mmap_type_unknown_msg
 
 section .text
-
 mb_prn_rpt:
 	push ebx
 	mov eax, [ebx]
@@ -147,7 +170,33 @@ mb_prn_rpt:
 	call fb_skip_line
 	call prn_elf_sects
 .skip_elf_sects:
-
+	; mmap_length and addresses
+	test byte [mb_flags], FLG_MMAP_ENTRIES
+	jz .skip_mmap_entries
+	call fb_skip_line
+	mov esi, mmap_length_msg
+	mov ecx, mmap_length_msg_len
+	call prn_msg
+	; mmap entry array length
+	mov eax, [ebx+0x2c]
+	call prn_dec
+	mov esi, b_msg
+	mov ecx, b_msg_len
+	call prn_msg
+	; mmap starting address
+	call fb_skip_line
+	mov ecx, [ebx+0x2c]
+	test ecx, ecx
+	jz .skip_mmap_entries
+	mov esi, mmap_addr_msg
+	mov ecx, mmap_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+0x30]
+	call prn_hex_dword
+	mov ecx, [ebx+0x2c]
+	; mmap entries
+	call prn_mmap_entries
+.skip_mmap_entries:
 	; unset indent
 	mov dword [fb_indent_bytes], 0x0
 
@@ -157,9 +206,119 @@ mb_prn_rpt:
 	pop ebx
 	ret
 
+; print mmap entry array
+; eax is the address of the array start (consumed)
+; ecx is the number of bytes in the array (consumed)
+; preserved: ebx/ebp
+; trashed: eax/ecx/edx/esi
+prn_mmap_entries:
+	push ebx
+	mov ebx, eax
+
+	add dword [fb_indent_bytes], MB_RPT_INDENT_BYTES
+	push ecx
+.mmap_entry_loop:
+	call fb_skip_line
+	mov esi, mmap_entry_siz_msg
+	mov ecx, mmap_entry_siz_len
+	call prn_msg
+	mov eax, [ebx]
+	call prn_dec
+	mov esi, b_msg
+	mov ecx, b_msg_len
+	call prn_msg
+	; mem addr (u64)
+	call fb_skip_line
+	mov esi, mmap_entry_addr_msg
+	mov ecx, mmap_entry_addr_len
+	call prn_msg
+	mov eax, [ebx+0x4]
+	mov edx, [ebx+0x8]
+	call prn_hex_qword
+	; mem length (u64)
+	call fb_skip_line
+	mov esi, mmap_entry_len_msg
+	mov ecx, mmap_entry_len_msg_len
+	call prn_msg
+	mov eax, [ebx+0xc]
+	mov edx, [ebx+0x10]
+	call prn_hex_qword
+	mov esi, b_msg
+	mov ecx, b_msg_len
+	call prn_msg
+	; type
+	call fb_skip_line
+	mov esi, mmap_entry_type_msg
+	mov ecx, mmap_entry_type_msg_len
+	call prn_msg
+	mov eax, [ebx+0x14]
+	call prn_mmap_entry_type
+	; retrieve recorded size of this mmap entry
+	mov eax, [ebx]
+	; now account for the size of the dword at [ebx] itself.
+	; spec says that the value stored there does not account
+	; for itself.
+	add eax, 4
+	; point ebx at next entry
+	add ebx, eax
+	pop ecx
+	sub ecx, eax
+	jbe .done
+	push ecx
+	jmp .mmap_entry_loop
+.done:
+	sub dword [fb_indent_bytes], MB_RPT_INDENT_BYTES
+	pop ebx
+	ret
+
+; print mmap entry type via compare chain
+; eax holds the type (preserved)
+; trashed: esi/ecx
+; preserved: eax
+prn_mmap_entry_type:
+	cmp eax, 0x01
+	je .avail_mem
+	cmp eax, 0x02
+	je .resv
+	cmp eax, 0x03
+	je .acpi_recl
+	cmp eax, 0x04
+	je .acpi_nvs
+	cmp eax, 0x05
+	je .bad_ram
+	mov esi, mmap_type_unknown_msg
+	mov ecx, mmap_type_unknown_msg_len
+	call prn_msg
+	ret
+.avail_mem:
+	mov esi, mmap_type_avail_mem_msg
+	mov ecx, mmap_type_avail_mem_msg_len
+	call prn_msg
+	ret
+.resv:
+	mov esi, mmap_type_resv_msg
+	mov ecx, mmap_type_resv_msg_len
+	call prn_msg
+	ret
+.acpi_recl:
+	mov esi, mmap_type_acpi_msg
+	mov ecx, mmap_type_acpi_msg_len
+	call prn_msg
+	ret
+.acpi_nvs:
+	mov esi, mmap_type_acpi_nvs_msg
+	mov ecx, mmap_type_acpi_nvs_msg_len
+	call prn_msg
+	ret
+.bad_ram:
+	mov esi, mmap_type_bad_ram_msg
+	mov ecx, mmap_type_bad_ram_msg_len
+	call prn_msg
+	ret
+
 ; print elf section header information
 ; ebx contains the multiboot report (preserved)
-; preserved: ebx/ebp/edi
+; preserved: ebx/ebp
 ; trashed: eax/ecx/esi
 prn_elf_sects:
 	mov esi, elf_h_cnt_msg

@@ -8,6 +8,7 @@ global prn_dec
 global prn_hex_byte
 global prn_hex_dword
 global prn_hex_word
+global prn_hex_qword
 
 extern byte_to_hex
 extern fb_scroll
@@ -51,6 +52,35 @@ prn_cstr:
 .end:
 	; inc past nul
 	inc eax
+	ret
+
+prn_hex_qword:
+	push esi
+
+	push edx
+	mov dl, '0'
+	call prn_byte
+	mov dl, 'x'
+	call prn_byte
+	pop edx
+	mov ecx, 3
+	xor esi, esi
+	push eax
+	mov eax, edx
+.prn_byte_loop:
+	call byte_to_hex
+	call prn_ascii_pair
+	dec ecx
+	jns .prn_byte_loop
+	cmp esi, 1
+	jae .done
+	; set up next register
+	inc esi
+	pop eax
+	mov ecx, 3
+	jmp .prn_byte_loop
+.done:
+	pop esi
 	ret
 
 prn_hex_dword:
