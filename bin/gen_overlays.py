@@ -63,17 +63,25 @@ MMAP_ENTRIES = [
     (0x00000000FFFC0000, 0x0000000000040000, 2),   # flash/ROM at 4 GB
 ]
 
-# A period-correct 1994 IDE hard disk: CHS geometry at the classic
-# 1024/16/63 BIOS ceiling (~504 MiB), addressed via the primary IDE
-# port pair. drive_mode 0 = CHS, 1 = LBA.
-DRIVE_1994 = dict(
-    number=0x80,
-    mode=0,                    # CHS — it's 1994, LBA is exotic
-    cylinders=1024,
-    heads=16,
-    sectors=63,
-    ports=(0x1F0, 0x3F6),      # primary IDE command + control blocks
-)
+# A period-correct 1994 machine's drive fleet, in BIOS enumeration
+# order. drive_mode 0 = CHS, 1 = LBA (it's 1994: CHS everywhere).
+# The ports lists deliberately differ in length so the drive entries
+# differ in SIZE (18/16/16 bytes) — a walker that hardcodes any stride
+# desyncs at the second entry; only honoring each entry's own
+# self-inclusive size field walks this fleet correctly.
+DRIVES_1994 = [
+    # 3.5" 1.44 MB floppy (drive A:), AT FDC ports incl. DOR/MSR/FIFO
+    dict(number=0x00, mode=0, cylinders=80, heads=2, sectors=18,
+         ports=(0x3F2, 0x3F4, 0x3F5)),
+    # primary-master IDE HDD at the classic 1024/16/63 BIOS ceiling
+    # (~504 MiB), primary IDE command + control blocks
+    dict(number=0x80, mode=0, cylinders=1024, heads=16, sectors=63,
+         ports=(0x1F0, 0x3F6)),
+    # secondary-master IDE HDD, a ~340 MB WD-Caviar-class disk,
+    # secondary IDE command + control blocks
+    dict(number=0x81, mode=0, cylinders=1010, heads=12, sectors=55,
+         ports=(0x170, 0x376)),
+]
 
 
 def build(flags: int, cmdline: bytes | None) -> bytes:
@@ -103,18 +111,19 @@ def pack_drive(number: int, mode: int, cylinders: int, heads: int,
     ) + ports_blob
 
 
-def build_drives(drive_kwargs: dict) -> bytes:
-    """Multiboot struct with only bit 7 (+mem/bootdev) set, one drive."""
+def build_drives(drive_list: list[dict]) -> bytes:
+    """Multiboot struct with only bit 7 (+mem/bootdev) set; the drive
+    structures packed back-to-back, drives_length spanning them all."""
     DRIVES_OFF = 0x80
-    drive = pack_drive(**drive_kwargs)
+    drives = b"".join(pack_drive(**d) for d in drive_list)
     buf = bytearray(DRIVES_OFF)
     struct.pack_into(
         "<IIII", buf, 0,
         FLAG_MEM | FLAG_BOOTDEV | FLAG_DRIVES,
         MEM_LOWER, MEM_UPPER, BOOT_DEVICE,
     )
-    struct.pack_into("<II", buf, 52, len(drive), BASE + DRIVES_OFF)
-    return bytes(buf) + drive
+    struct.pack_into("<II", buf, 52, len(drives), BASE + DRIVES_OFF)
+    return bytes(buf) + drives
 
 
 def pack_mmap(entries: list[tuple[int, int, int]]) -> bytes:
@@ -219,7 +228,7 @@ def build_modules(cmdline: bytes, mod_args: list[bytes],
 
 
 def build_everything(cmdline: bytes, mod_args: list[bytes],
-                     drive_kwargs: dict,
+                     drive_list: list[dict],
                      mmap_entries: list[tuple[int, int, int]],
                      payload_size: int = 64) -> bytes:
     """Union of every overlay's targeted data: mem + bootdev + cmdline
@@ -231,12 +240,12 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
       0x080  module descriptors: len(mod_args) x 16 bytes
       0x0D0  arg strings, packed
       0x140  cmdline string
-      0x170  drive structure(s)
-      0x1A0  mmap entries: len(mmap_entries) x 24 bytes
+      0x170  drive structures, back-to-back (self-sized)
+      0x1B0  mmap entries: len(mmap_entries) x 24 bytes
       0x240  module payloads, payload_size bytes each, distinct fill bytes
     """
     MODS_OFF, STRINGS_OFF, CMD_OFF = 0x080, 0x0D0, 0x140
-    DRIVES_OFF, MMAP_OFF, PAYLOAD_OFF = 0x170, 0x1A0, 0x240
+    DRIVES_OFF, MMAP_OFF, PAYLOAD_OFF = 0x170, 0x1B0, 0x240
     count = len(mod_args)
     assert MODS_OFF + count * 16 <= STRINGS_OFF, "descriptors overflow strings"
 
@@ -247,7 +256,7 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
     assert off <= CMD_OFF, "arg strings overflow cmdline"
     assert CMD_OFF + len(cmdline) + 1 <= DRIVES_OFF, "cmdline overflows drives"
 
-    drive = pack_drive(**drive_kwargs)
+    drive = b"".join(pack_drive(**d) for d in drive_list)
     assert DRIVES_OFF + len(drive) <= MMAP_OFF, "drives overflow mmap"
 
     mmap = pack_mmap(mmap_entries)
@@ -318,8 +327,10 @@ def main() -> None:
                 b"/boot/eos.cfg quiet",
             ],
         ),
-        # bit 7 set: one 1994-vintage CHS drive (1024/16/63, primary IDE)
-        "drives_1994.bin": build_drives(DRIVE_1994),
+        # bit 7 set: a 1994-vintage three-drive fleet (floppy + two
+        # IDE HDDs) with UNEQUAL entry sizes (18/16/16) to exercise the
+        # self-sizing array walk
+        "drives_1994.bin": build_drives(DRIVES_1994),
         # bit 4 set: a.out symbol table (the ELF union's other half) —
         # three text symbols with nlist entries and a string table
         "aout_syms.bin": build_aout(AOUT_SYMBOLS),
@@ -331,7 +342,7 @@ def main() -> None:
                 b"/boot/font.psf",
                 b"/boot/eos.cfg quiet",
             ],
-            DRIVE_1994,
+            DRIVES_1994,
             MMAP_ENTRIES,
         ),
     }
