@@ -26,6 +26,14 @@
 ;                 leading zeros.
 ;                 eax = value (consumed)
 ;
+; prn_dec_byte    print a single byte at an arbitrary byte index within eax
+;                 as a decimal number. no leading zeros.
+;                 eax = value (consumed)
+;
+; prn_dec_wordl   print the lower word portion of eax as a decimal number.
+;                 no leading zeros.
+;                 eax = value (consumed)
+;
 ; prn_hex_byte    print a single byte at an arbitrary byte index within eax
 ;                 as a 0x-prefixed 2-digit hexadecimal number.
 ;                 eax = value (preserved).
@@ -35,7 +43,7 @@
 ;                 number. Printed in big-endian order.
 ;                 eax = value (preserved).
 ;
-; prn_hex_word    prints the lower word portion of a register as a
+; prn_hex_wordl   prints the lower word portion of a register as a
 ;                 0x-prefixed 4-digit hexadecimal number. Printed in
 ;                 big-endian order.
 ;                 eax = value (preserved).

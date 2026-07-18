@@ -8,11 +8,13 @@ extern fb_skip_line      ; fb.s
 extern fb_indent_bytes   ; fb.s
 extern byte_to_hex       ; util.s
 extern prn_byte          ; prn.s
+extern prn_cstr          ; prn.s
+extern prn_dec           ; prn.s
+extern prn_dec_byte      ; prn.s
+extern prn_dec_wordl     ; prn.s
 extern prn_hex_byte      ; prn.s
 extern prn_hex_dword     ; prn.s
 extern prn_hex_qword     ; prn.s
-extern prn_cstr          ; prn.s
-extern prn_dec           ; prn.s
 extern prn_msg           ; prn.s
 
 MB_RPT_INDENT_BYTES equ 0x8
@@ -22,6 +24,7 @@ FLG_CMDLINE equ 0x4
 FLG_MODULES equ 0x8
 FLG_ELF_SECTS equ 0x20
 FLG_MMAP_ENTRIES equ 0x40
+FLG_DRIVE_INFO equ 0x80
 BOOT_DEV_OFF equ 0xc
 ASCII_FF equ 0x4646
 
@@ -85,6 +88,22 @@ section .rodata
 	mmap_type_bad_ram_msg_len equ $-mmap_type_bad_ram_msg
 	mmap_type_unknown_msg db "Unknown"
 	mmap_type_unknown_msg_len equ $-mmap_type_unknown_msg
+	drives_arr_len_msg db "Drive information memory size: "
+	drives_arr_len_msg_len equ $-drives_arr_len_msg
+	drives_addr_msg db "Drive information address: "
+	drives_addr_msg_len equ $-drives_addr_msg
+	drive_entry_siz_msg db "Drive entry size: "
+	drive_entry_siz_msg_len equ $-drive_entry_siz_msg
+	drive_bios_num_msg db "Drive BIOS number: "
+	drive_bios_num_msg_len equ $-drive_bios_num_msg
+	drive_mode_msg db "Drive mode: "
+	drive_mode_msg_len equ $-drive_mode_msg
+	drive_cyl_msg db "Drive cylinders: "
+	drive_cyl_msg_len equ $-drive_cyl_msg
+	drive_head_msg db "Drive heads: "
+	drive_head_msg_len equ $-drive_head_msg
+	drive_sect_msg db "Drive sectors: "
+	drive_sect_msg_len equ $-drive_sect_msg
 
 section .text
 mb_prn_rpt:
@@ -197,12 +216,93 @@ mb_prn_rpt:
 	; mmap entries
 	call prn_mmap_entries
 .skip_mmap_entries:
+	test byte [mb_flags], FLG_DRIVE_INFO
+	jz .skip_drive_info
+	; drive information
+	call fb_skip_line
+	mov esi, drives_arr_len_msg
+	mov ecx, drives_arr_len_msg_len
+	call prn_msg
+	mov eax, [ebx+0x34]
+	call prn_dec
+	mov esi, b_msg
+	mov ecx, b_msg_len
+	call prn_msg
+	; drive information addr
+	call fb_skip_line
+	mov esi, drives_addr_msg
+	mov ecx, drives_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+0x38]
+	call prn_hex_dword
+	mov ecx, [ebx+0x34]
+	call prn_drive_info
+.skip_drive_info:
 	; unset indent
 	mov dword [fb_indent_bytes], 0x0
-
 	; close lease
 	mov [fb_mem_addr], edi
 	call crtc_write_cursor
+	pop ebx
+	ret
+
+; print drive volume information array
+; eax is the address of the array start (consumed)
+; ecx is the number of bytes in the array (consumed)
+; trashed: eax/ecx/edx/esi
+prn_drive_info:
+	push ebx
+	push ecx
+	mov ebx, eax
+.drive_loop:
+	call fb_skip_line
+	mov esi, drive_entry_siz_msg
+	mov ecx, drive_entry_siz_msg_len
+	call prn_msg
+	mov eax, [ebx]
+	call prn_dec
+	call fb_skip_line
+	mov esi, drive_bios_num_msg
+	mov ecx, drive_bios_num_msg_len
+	call prn_msg
+	mov eax, [ebx+0x4]
+	mov ecx, 0
+	call prn_hex_byte
+	call fb_skip_line
+	mov esi, drive_mode_msg
+	mov ecx, drive_mode_msg_len
+	call prn_msg
+	mov eax, [ebx+0x4]
+	mov ecx, 1
+	call prn_hex_byte
+	call fb_skip_line
+	mov esi, drive_cyl_msg
+	mov ecx, drive_cyl_msg_len
+	call prn_msg
+	mov eax, [ebx+0x6]
+	call prn_dec_wordl
+	call fb_skip_line
+	mov esi, drive_head_msg
+	mov ecx, drive_head_msg_len
+	call prn_msg
+	mov eax, [ebx+0x8]
+	mov ecx, 0
+	call prn_dec_byte
+	call fb_skip_line
+	mov esi, drive_sect_msg
+	mov ecx, drive_sect_msg_len
+	call prn_msg
+	mov eax, [ebx+0x9]
+	mov ecx, 0
+	call prn_dec_byte
+	mov eax, [ebx]
+	add ebx, eax
+	pop ecx
+	sub ecx, eax
+	jbe .done
+	push ecx
+	jmp .drive_loop
+.done:
 	pop ebx
 	ret
 

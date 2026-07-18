@@ -5,9 +5,11 @@ global prn_byte
 global prn_msg
 global prn_cstr
 global prn_dec
+global prn_dec_byte
+global prn_dec_wordl
 global prn_hex_byte
 global prn_hex_dword
-global prn_hex_word
+global prn_hex_wordl
 global prn_hex_qword
 
 extern byte_to_hex
@@ -87,7 +89,7 @@ prn_hex_dword:
 	mov ecx, 3
 	jmp prn_hex_internal
 
-prn_hex_word:
+prn_hex_wordl:
 	mov ecx, 1
 	jmp prn_hex_internal
 
@@ -157,3 +159,12 @@ prn_dec:
 	pop ebx
 	ret
 
+prn_dec_wordl:
+	and eax, 0xFFFF
+	jmp prn_dec
+
+prn_dec_byte:
+	shl ecx, 3
+	shr eax, cl
+	and eax, 0xFF
+	jmp prn_dec
