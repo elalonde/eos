@@ -29,7 +29,7 @@ CFLAGS = -m32 -nostdlib -nostdinc -fno-builtin -fno-stack-protector \
 	-nostartfiles -nodefaultlibs -Wall -Wextra -Werror
 LDFLAGS = -T $(SRC_DIR)/link.ld -melf_i386
 AS = nasm
-ASFLAGS = -f elf -Isrc
+ASFLAGS = -f elf -Isrc -w+error=number-overflow -w+error=orphan-labels
 
 .PHONY: all run debug clean gdb test testclean
 

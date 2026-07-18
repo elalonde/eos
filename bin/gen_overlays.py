@@ -26,6 +26,8 @@ FLAG_AOUT = 1 << 4
 FLAG_ELF = 1 << 5
 FLAG_MMAP = 1 << 6
 FLAG_DRIVES = 1 << 7
+FLAG_CONFIG = 1 << 8
+FLAG_LOADER_NAME = 1 << 9
 
 MEM_LOWER = 639
 MEM_UPPER = 129920
@@ -82,6 +84,24 @@ DRIVES_1994 = [
     dict(number=0x81, mode=0, cylinders=1010, heads=12, sectors=55,
          ports=(0x170, 0x376)),
 ]
+
+# Bootloader name (flag bit 9): same pointer-to-cstring species as
+# cmdline. Deliberately NOT a plausible GRUB string, so a wrong-pointer
+# bug can't masquerade as a correct read.
+LOADER_NAME = b"eos-fixture-loader 9.9"
+
+# ROM config table (flag bit 8): format is the BIOS INT 15h/AH=C0h
+# Get Configuration table, which Multiboot points at but does not
+# define. eos therefore never walks it -- the fixture exists so the
+# gate and (at most) a pointer print can be exercised. Length word is
+# SELF-EXCLUSIVE (counts the bytes after itself): third convention in
+# the report after mmap (self-exclusive) and drives (self-inclusive).
+# Body bytes are period-flavored tracer dye: model 0xFC (AT-class),
+# submodel 0x01, BIOS rev 0x00, feature bytes 0x74 0x40, then two
+# 0xC7 filler bytes so a hex dump has a recognizable signature.
+CONFIG_TABLE = struct.pack("<H", 7) + bytes(
+    [0xFC, 0x01, 0x00, 0x74, 0x40, 0xC7, 0xC7]
+)
 
 
 def build(flags: int, cmdline: bytes | None) -> bytes:
@@ -227,6 +247,22 @@ def build_modules(cmdline: bytes, mod_args: list[bytes],
     return bytes(buf) + payloads
 
 
+def build_loader_and_config(name: bytes, config: bytes) -> bytes:
+    """Multiboot struct with bits 8 and 9 (+mem/bootdev) set: config
+    table blob at 0x80, loader-name cstring just past it."""
+    CONFIG_OFF = 0x80
+    name_off = CONFIG_OFF + len(config)
+    buf = bytearray(CONFIG_OFF)
+    struct.pack_into(
+        "<IIII", buf, 0,
+        FLAG_MEM | FLAG_BOOTDEV | FLAG_CONFIG | FLAG_LOADER_NAME,
+        MEM_LOWER, MEM_UPPER, BOOT_DEVICE,
+    )
+    struct.pack_into("<I", buf, 60, BASE + CONFIG_OFF)   # config_table
+    struct.pack_into("<I", buf, 64, BASE + name_off)     # boot_loader_name
+    return bytes(buf) + config + name + b"\x00"
+
+
 def build_everything(cmdline: bytes, mod_args: list[bytes],
                      drive_list: list[dict],
                      mmap_entries: list[tuple[int, int, int]],
@@ -242,10 +278,12 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
       0x140  cmdline string
       0x170  drive structures, back-to-back (self-sized)
       0x1B0  mmap entries: len(mmap_entries) x 24 bytes
-      0x240  module payloads, payload_size bytes each, distinct fill bytes
+      0x240  ROM config table blob, then loader-name cstring
+      0x280  module payloads, payload_size bytes each, distinct fill bytes
     """
     MODS_OFF, STRINGS_OFF, CMD_OFF = 0x080, 0x0D0, 0x140
-    DRIVES_OFF, MMAP_OFF, PAYLOAD_OFF = 0x170, 0x1B0, 0x240
+    DRIVES_OFF, MMAP_OFF = 0x170, 0x1B0
+    CONFIG_OFF, PAYLOAD_OFF = 0x240, 0x280
     count = len(mod_args)
     assert MODS_OFF + count * 16 <= STRINGS_OFF, "descriptors overflow strings"
 
@@ -260,7 +298,11 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
     assert DRIVES_OFF + len(drive) <= MMAP_OFF, "drives overflow mmap"
 
     mmap = pack_mmap(mmap_entries)
-    assert MMAP_OFF + len(mmap) <= PAYLOAD_OFF, "mmap overflows payloads"
+    assert MMAP_OFF + len(mmap) <= CONFIG_OFF, "mmap overflows config"
+
+    name_off = CONFIG_OFF + len(CONFIG_TABLE)
+    assert name_off + len(LOADER_NAME) + 1 <= PAYLOAD_OFF, \
+        "config+name overflow payloads"
 
     descs, payloads = b"", b""
     for i, sa in enumerate(str_addrs):
@@ -272,7 +314,8 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
     struct.pack_into(
         "<IIIIIII", buf, 0,
         FLAG_MEM | FLAG_BOOTDEV | FLAG_CMDLINE | FLAG_MODS
-        | FLAG_ELF | FLAG_MMAP | FLAG_DRIVES,
+        | FLAG_ELF | FLAG_MMAP | FLAG_DRIVES
+        | FLAG_CONFIG | FLAG_LOADER_NAME,
         MEM_LOWER, MEM_UPPER, BOOT_DEVICE,
         BASE + CMD_OFF,        # cmdline       (+16)
         count,                 # mods_count    (+20)
@@ -287,12 +330,17 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
         len(mmap), BASE + MMAP_OFF,                  # mmap_length/addr
     )
     struct.pack_into("<II", buf, 52, len(drive), BASE + DRIVES_OFF)
+    struct.pack_into("<I", buf, 60, BASE + CONFIG_OFF)   # config_table
+    struct.pack_into("<I", buf, 64, BASE + name_off)     # boot_loader_name
     for arg, addr in zip(mod_args, str_addrs):
         struct.pack_into(f"{len(arg) + 1}s", buf, addr - BASE, arg + b"\x00")
     struct.pack_into(f"{len(descs)}s", buf, MODS_OFF, descs)
     struct.pack_into(f"{len(cmdline) + 1}s", buf, CMD_OFF, cmdline + b"\x00")
     struct.pack_into(f"{len(drive)}s", buf, DRIVES_OFF, drive)
     struct.pack_into(f"{len(mmap)}s", buf, MMAP_OFF, mmap)
+    struct.pack_into(f"{len(CONFIG_TABLE)}s", buf, CONFIG_OFF, CONFIG_TABLE)
+    struct.pack_into(f"{len(LOADER_NAME) + 1}s", buf, name_off,
+                     LOADER_NAME + b"\x00")
     return bytes(buf) + payloads
 
 
@@ -331,6 +379,11 @@ def main() -> None:
         # IDE HDDs) with UNEQUAL entry sizes (18/16/16) to exercise the
         # self-sizing array walk
         "drives_1994.bin": build_drives(DRIVES_1994),
+        # bits 8+9 set: ROM config table blob (opaque, gate/pointer
+        # test only) and a tracer-dye bootloader name cstring
+        "loader_and_config.bin": build_loader_and_config(
+            LOADER_NAME, CONFIG_TABLE,
+        ),
         # bit 4 set: a.out symbol table (the ELF union's other half) —
         # three text symbols with nlist entries and a string table
         "aout_syms.bin": build_aout(AOUT_SYMBOLS),

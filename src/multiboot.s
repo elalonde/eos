@@ -13,6 +13,7 @@ extern prn_dec           ; prn.s
 extern prn_dec_byte      ; prn.s
 extern prn_dec_wordl     ; prn.s
 extern prn_hex_byte      ; prn.s
+extern prn_hex_wordl     ; prn.s
 extern prn_hex_dword     ; prn.s
 extern prn_hex_qword     ; prn.s
 extern prn_msg           ; prn.s
@@ -25,6 +26,8 @@ FLG_MODULES equ 0x8
 FLG_ELF_SECTS equ 0x20
 FLG_MMAP_ENTRIES equ 0x40
 FLG_DRIVE_INFO equ 0x80
+FLG_CFG_TBL equ 0x100
+FLG_BL_NAME equ 0x200
 BOOT_DEV_OFF equ 0xc
 ASCII_FF equ 0x4646
 
@@ -104,6 +107,12 @@ section .rodata
 	drive_head_msg_len equ $-drive_head_msg
 	drive_sect_msg db "Drive sectors: "
 	drive_sect_msg_len equ $-drive_sect_msg
+	drive_ports_msg db "Drive ports: "
+	drive_ports_msg_len equ $-drive_ports_msg
+	cfg_tbl_msg db "BIOS config table addr: "
+	cfg_tbl_msg_len equ $-cfg_tbl_msg
+	bl_name_msg db "Bootloader name: "
+	bl_name_msg_len equ $-bl_name_msg
 
 section .text
 mb_prn_rpt:
@@ -189,20 +198,17 @@ mb_prn_rpt:
 	call fb_skip_line
 	call prn_elf_sects
 .skip_elf_sects:
-	; mmap_length and addresses
 	test byte [mb_flags], FLG_MMAP_ENTRIES
 	jz .skip_mmap_entries
 	call fb_skip_line
 	mov esi, mmap_length_msg
 	mov ecx, mmap_length_msg_len
 	call prn_msg
-	; mmap entry array length
 	mov eax, [ebx+0x2c]
 	call prn_dec
 	mov esi, b_msg
 	mov ecx, b_msg_len
 	call prn_msg
-	; mmap starting address
 	call fb_skip_line
 	mov ecx, [ebx+0x2c]
 	test ecx, ecx
@@ -213,12 +219,13 @@ mb_prn_rpt:
 	mov eax, [ebx+0x30]
 	call prn_hex_dword
 	mov ecx, [ebx+0x2c]
-	; mmap entries
 	call prn_mmap_entries
 .skip_mmap_entries:
 	test byte [mb_flags], FLG_DRIVE_INFO
-	jz .skip_drive_info
-	; drive information
+	jz .skip_drive_nfo
+	mov eax, [ebx+0x34]
+	test eax, eax
+	jz .skip_drive_nfo
 	call fb_skip_line
 	mov esi, drives_arr_len_msg
 	mov ecx, drives_arr_len_msg_len
@@ -228,7 +235,6 @@ mb_prn_rpt:
 	mov esi, b_msg
 	mov ecx, b_msg_len
 	call prn_msg
-	; drive information addr
 	call fb_skip_line
 	mov esi, drives_addr_msg
 	mov ecx, drives_addr_msg_len
@@ -236,8 +242,29 @@ mb_prn_rpt:
 	mov eax, [ebx+0x38]
 	call prn_hex_dword
 	mov ecx, [ebx+0x34]
-	call prn_drive_info
-.skip_drive_info:
+	call prn_drive_nfo
+.skip_drive_nfo:
+	test dword [mb_flags], FLG_CFG_TBL
+	jz .skip_cfg_tbl
+	call fb_skip_line
+	mov esi, cfg_tbl_msg
+	mov ecx, cfg_tbl_msg_len
+	call prn_msg
+	mov eax, [ebx+0x3C]
+	call prn_hex_dword
+.skip_cfg_tbl:
+	test dword [mb_flags], FLG_BL_NAME
+	jz .skip_bl_name
+	mov eax, [ebx+0x40]
+	cmp byte [eax], 0
+	jz .skip_bl_name
+	call fb_skip_line
+	mov esi, bl_name_msg
+	mov ecx, bl_name_msg_len
+	call prn_msg
+	mov esi, [ebx+0x40]
+	call prn_cstr
+.skip_bl_name:
 	; unset indent
 	mov dword [fb_indent_bytes], 0x0
 	; close lease
@@ -250,7 +277,7 @@ mb_prn_rpt:
 ; eax is the address of the array start (consumed)
 ; ecx is the number of bytes in the array (consumed)
 ; trashed: eax/ecx/edx/esi
-prn_drive_info:
+prn_drive_nfo:
 	push ebx
 	push ecx
 	mov ebx, eax
@@ -295,6 +322,33 @@ prn_drive_info:
 	mov eax, [ebx+0x9]
 	mov ecx, 0
 	call prn_dec_byte
+	; drive port array
+	call fb_skip_line
+	mov esi, drive_ports_msg
+	mov ecx, drive_ports_msg_len
+	call prn_msg
+	xor edx, edx
+	mov ax, [ebx+0xA]
+.port_loop:
+	test ax, ax
+	jz .ports_done
+	cmp dx, 2
+	jb .skip_comma
+	push dx
+	mov dl, ','
+	call prn_byte
+	pop dx
+.skip_comma:
+	push dx
+	call prn_hex_wordl
+	pop dx
+	add dx, 2 ; next port pair
+	mov ecx, ebx
+	add ecx, 0xA
+	add ecx, edx
+	mov ax, [ecx]
+	jmp .port_loop
+.ports_done:
 	mov eax, [ebx]
 	add ebx, eax
 	pop ecx
