@@ -28,6 +28,7 @@ FLG_MMAP_ENTRIES equ 0x40
 FLG_DRIVE_INFO equ 0x80
 FLG_CFG_TBL equ 0x100
 FLG_BL_NAME equ 0x200
+FLG_APM_TBL equ 0x400
 BOOT_DEV_OFF equ 0xc
 ASCII_FF equ 0x4646
 
@@ -113,6 +114,28 @@ section .rodata
 	cfg_tbl_msg_len equ $-cfg_tbl_msg
 	bl_name_msg db "Bootloader name: "
 	bl_name_msg_len equ $-bl_name_msg
+	apm_ver_msg db "APM Version: "
+	apm_ver_msg_len equ $-apm_ver_msg
+	apm_cseg_addr_msg db "APM code segment address: "
+	apm_cseg_addr_msg_len equ $-apm_cseg_addr_msg
+	apm_entry_offset_msg db "APM entry-point offset: "
+	apm_entry_offset_msg_len equ $-apm_entry_offset_msg
+	apm_cseg16_addr_msg db "APM 16-bit code segment address: "
+	apm_cseg16_addr_msg_len equ $-apm_cseg16_addr_msg
+	apm_dseg_addr_msg db "APM data segment address: "
+	apm_dseg_addr_msg_len equ $-apm_dseg_addr_msg
+	apm_flags_msg db "APM flags: "
+	apm_flags_msg_len equ $- apm_flags_msg
+	apm_cseg_len_msg db "APM code segment length: "
+	apm_cseg_len_msg_len equ $-apm_cseg_len_msg
+	apm_cseg16_len_msg db "APM 16-bit code segment length: "
+	apm_cseg16_len_msg_len equ $- apm_cseg16_len_msg
+	apm_dseg_len_msg db "APM data segment length: "
+	apm_dseg_len_msg_len equ $-apm_dseg_len_msg
+
+
+
+
 
 section .text
 mb_prn_rpt:
@@ -265,13 +288,91 @@ mb_prn_rpt:
 	mov esi, [ebx+0x40]
 	call prn_cstr
 .skip_bl_name:
+	test dword [mb_flags], FLG_APM_TBL
+	jz .skip_apm_tbl
+	mov eax, [ebx+0x44]
+	call prn_apm_tbl
+.skip_apm_tbl:
 	; unset indent
 	mov dword [fb_indent_bytes], 0x0
+
 	; close lease
 	mov [fb_mem_addr], edi
 	call crtc_write_cursor
 	pop ebx
 	ret
+
+; print the APM information table
+; eax is the address of the array start (consumed)
+prn_apm_tbl:
+	push ebx
+	mov ebx, eax
+	call fb_skip_line
+	mov esi, apm_ver_msg
+	mov ecx, apm_ver_msg_len
+	call prn_msg
+	mov eax, [ebx]
+	call prn_hex_wordl
+	call fb_skip_line
+	mov esi, apm_cseg_addr_msg
+	mov ecx, apm_cseg_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+2]
+	call prn_hex_wordl
+	call fb_skip_line
+	mov esi, apm_entry_offset_msg
+	mov ecx, apm_entry_offset_msg_len
+	call prn_msg
+	mov eax, [ebx+4]
+	call prn_hex_dword
+	call fb_skip_line
+	mov esi, apm_cseg16_addr_msg
+	mov ecx, apm_cseg16_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+8]
+	call prn_hex_wordl
+	call fb_skip_line
+	mov esi, apm_dseg_addr_msg
+	mov ecx, apm_dseg_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+10]
+	call prn_hex_wordl
+	call fb_skip_line
+	mov esi, apm_flags_msg
+	mov ecx, apm_flags_msg_len
+	call prn_msg
+	mov eax, [ebx+12]
+	call prn_hex_wordl
+	call fb_skip_line
+	mov esi, apm_cseg_len_msg
+	mov ecx, apm_cseg_len_msg_len
+	call prn_msg
+	mov eax, [ebx+14]
+	call prn_hex_wordl
+	mov esi, b_msg
+	mov ecx, b_msg_len
+	call prn_msg
+	call fb_skip_line
+	mov esi, apm_cseg16_len_msg
+	mov ecx, apm_cseg16_len_msg_len
+	call prn_msg
+	mov eax, [ebx+16]
+	call prn_hex_wordl
+	mov esi, b_msg
+	mov ecx, b_msg_len
+	call prn_msg
+	call fb_skip_line
+	mov esi, apm_dseg_len_msg
+	mov ecx, apm_dseg_len_msg_len
+	call prn_msg
+	mov eax, [ebx+18]
+	call prn_hex_wordl
+	mov esi, b_msg
+	mov ecx, b_msg_len
+	call prn_msg
+	pop ebx
+	ret
+
 
 ; print drive volume information array
 ; eax is the address of the array start (consumed)
