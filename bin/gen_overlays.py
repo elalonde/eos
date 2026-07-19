@@ -28,6 +28,8 @@ FLAG_MMAP = 1 << 6
 FLAG_DRIVES = 1 << 7
 FLAG_CONFIG = 1 << 8
 FLAG_LOADER_NAME = 1 << 9
+FLAG_APM = 1 << 10
+FLAG_VBE = 1 << 11
 
 MEM_LOWER = 639
 MEM_UPPER = 129920
@@ -103,6 +105,46 @@ CONFIG_TABLE = struct.pack("<H", 7) + bytes(
     [0xFC, 0x01, 0x00, 0x74, 0x40, 0xC7, 0xC7]
 )
 
+# APM table (flag bit 10): pointer at struct offset 68 to a 20-byte
+# table, APM BIOS spec 1.2 layout. Nine mostly-word fields, so the
+# failure modes are adjacent-word transposition and half-word /
+# byte-order confusion — every tracer word is unique fleet-wide and
+# none is palindromic (high byte always differs from low byte).
+# version is the one period-real value (APM 1.2); the rest is dye.
+APM_TABLE = dict(
+    version=0x0102,        # APM 1.2, BCD-flavored major.minor
+    cseg=0xF0C1,
+    offset=0x000BD2E4,     # the lone dword, splitting the word runs
+    cseg_16=0xF1C2,
+    dseg=0xF2D3,
+    flags=0x0A21,
+    cseg_len=0xFE10,
+    cseg_16_len=0xFE21,
+    dseg_len=0xFE32,
+)
+
+# VBE satellites (flag bit 11): the two pointers target blocks the
+# video BIOS filled. Their internal layouts belong to the VBE spec,
+# not multiboot, and eos prints only the pointers — so the fixture
+# blocks are OPAQUE dye, not modeled structures. The control block
+# leads with the period-correct "VESA" signature so a hex dump is
+# instantly recognizable; the mode block gets a distinct fill. If eos
+# ever parses interiors, these must grow into real VBE-spec layouts.
+VBE_CONTROL_BLOB = b"VESA" + bytes([0xB6]) * 28
+VBE_MODE_BLOB = bytes([0xB7]) * 32
+
+# vbe_mode: the word's individual bits carry meaning (a convention not
+# yet discussed in the project) — treated as an opaque tracer here.
+# seg:off is the far-pointer idiom again (VBE 2.0 protected-mode
+# entry, segment stored first); len completes the triple. The spec
+# defines all-zero here as "interface not available" — these are
+# deliberately nonzero so the populated path is what gets exercised.
+# Tracers unique fleet-wide, non-palindromic.
+VBE_MODE = 0x4115
+VBE_IF_SEG = 0xC0A5
+VBE_IF_OFF = 0x96B4
+VBE_IF_LEN = 0x00C8
+
 
 def build(flags: int, cmdline: bytes | None) -> bytes:
     buf = bytearray(CMDLINE_OFF)
@@ -158,6 +200,19 @@ def pack_mmap(entries: list[tuple[int, int, int]]) -> bytes:
     return blob
 
 
+def pack_apm(version: int, cseg: int, offset: int, cseg_16: int,
+             dseg: int, flags: int, cseg_len: int, cseg_16_len: int,
+             dseg_len: int) -> bytes:
+    """One multiboot APM table: version(2) cseg(2) offset(4) cseg_16(2)
+    dseg(2) flags(2) cseg_len(2) cseg_16_len(2) dseg_len(2) = 20 bytes.
+    Mixed-width — the lone dword at +4 splits the word runs, so this is
+    fixed-base-plus-displacement territory, not a uniform array."""
+    return struct.pack(
+        "<HHIHHHHHH", version, cseg, offset, cseg_16,
+        dseg, flags, cseg_len, cseg_16_len, dseg_len,
+    )
+
+
 def pack_aout_syms(symbols: list[tuple[bytes, int, int]]) -> tuple[bytes, int, int]:
     """a.out symbol satellite per the multiboot spec: tabsize dword,
     nlist array (12 bytes each: n_strx n_type n_other n_desc n_value),
@@ -200,6 +255,40 @@ def build_aout(symbols: list[tuple[bytes, int, int]]) -> bytes:
         tabsize, strsize, BASE + AOUT_OFF, 0,   # aout_sym (+28..+40)
     )
     return bytes(buf) + blob
+
+
+def build_apm(table: dict) -> bytes:
+    """Multiboot struct with bit 10 (+mem/bootdev) set: apm_table
+    pointer at offset 68, the 20-byte table satellite at 0x80."""
+    APM_OFF = 0x80
+    buf = bytearray(APM_OFF)
+    struct.pack_into(
+        "<IIII", buf, 0,
+        FLAG_MEM | FLAG_BOOTDEV | FLAG_APM,
+        MEM_LOWER, MEM_UPPER, BOOT_DEVICE,
+    )
+    struct.pack_into("<I", buf, 68, BASE + APM_OFF)
+    return bytes(buf) + pack_apm(**table)
+
+
+def build_vbe() -> bytes:
+    """Multiboot struct with bit 11 (+mem/bootdev) set: two dword
+    pointers then four words at offsets 72..87. Control block at 0x80,
+    mode block packed just past it."""
+    CTRL_OFF = 0x80
+    mode_off = CTRL_OFF + len(VBE_CONTROL_BLOB)
+    buf = bytearray(CTRL_OFF)
+    struct.pack_into(
+        "<IIII", buf, 0,
+        FLAG_MEM | FLAG_BOOTDEV | FLAG_VBE,
+        MEM_LOWER, MEM_UPPER, BOOT_DEVICE,
+    )
+    struct.pack_into(
+        "<IIHHHH", buf, 72,
+        BASE + CTRL_OFF, BASE + mode_off,
+        VBE_MODE, VBE_IF_SEG, VBE_IF_OFF, VBE_IF_LEN,
+    )
+    return bytes(buf) + VBE_CONTROL_BLOB + VBE_MODE_BLOB
 
 
 def build_modules(cmdline: bytes, mod_args: list[bytes],
@@ -266,10 +355,17 @@ def build_loader_and_config(name: bytes, config: bytes) -> bytes:
 def build_everything(cmdline: bytes, mod_args: list[bytes],
                      drive_list: list[dict],
                      mmap_entries: list[tuple[int, int, int]],
-                     payload_size: int = 64) -> bytes:
+                     payload_size: int = 64,
+                     symtab: str = "elf") -> bytes:
     """Union of every overlay's targeted data: mem + bootdev + cmdline
-    + modules + ELF sections + mmap + drives, all flags set, all
-    satellites populated.
+    + modules + symbol fields + mmap + drives + config + loader name
+    + APM + VBE, all satellites populated.
+
+    Offsets 28..40 are ONE union — a.out (bit 4) or ELF (bit 5), never
+    both — so "everything" is necessarily a two-variant family:
+    symtab="elf" fills the union's ELF half, symtab="aout" the a.out
+    half (satellite in its dedicated slot, which the elf variant
+    leaves zeroed).
 
     Layout (offsets from BASE):
       0x000  multiboot info struct
@@ -279,11 +375,16 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
       0x170  drive structures, back-to-back (self-sized)
       0x1B0  mmap entries: len(mmap_entries) x 24 bytes
       0x240  ROM config table blob, then loader-name cstring
-      0x280  module payloads, payload_size bytes each, distinct fill bytes
+      0x280  APM table, 20 bytes
+      0x2A0  VBE control block, then mode block
+      0x2E0  a.out symbol satellite (aout variant only)
+      0x340  module payloads, payload_size bytes each, distinct fill bytes
     """
+    assert symtab in ("elf", "aout"), "symtab must be 'elf' or 'aout'"
     MODS_OFF, STRINGS_OFF, CMD_OFF = 0x080, 0x0D0, 0x140
     DRIVES_OFF, MMAP_OFF = 0x170, 0x1B0
-    CONFIG_OFF, PAYLOAD_OFF = 0x240, 0x280
+    CONFIG_OFF, APM_OFF, VBE_OFF = 0x240, 0x280, 0x2A0
+    AOUT_OFF, PAYLOAD_OFF = 0x2E0, 0x340
     count = len(mod_args)
     assert MODS_OFF + count * 16 <= STRINGS_OFF, "descriptors overflow strings"
 
@@ -301,8 +402,19 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
     assert MMAP_OFF + len(mmap) <= CONFIG_OFF, "mmap overflows config"
 
     name_off = CONFIG_OFF + len(CONFIG_TABLE)
-    assert name_off + len(LOADER_NAME) + 1 <= PAYLOAD_OFF, \
-        "config+name overflow payloads"
+    assert name_off + len(LOADER_NAME) + 1 <= APM_OFF, \
+        "config+name overflow apm"
+
+    apm = pack_apm(**APM_TABLE)
+    assert APM_OFF + len(apm) <= VBE_OFF, "apm overflows vbe"
+
+    vbe_mode_off = VBE_OFF + len(VBE_CONTROL_BLOB)
+    assert vbe_mode_off + len(VBE_MODE_BLOB) <= AOUT_OFF, \
+        "vbe blocks overflow aout"
+
+    aout_blob, tabsize, strsize = pack_aout_syms(AOUT_SYMBOLS)
+    assert AOUT_OFF + len(aout_blob) <= PAYLOAD_OFF, \
+        "aout satellite overflows payloads"
 
     descs, payloads = b"", b""
     for i, sa in enumerate(str_addrs):
@@ -310,21 +422,28 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
         descs += struct.pack("<IIII", start, start + payload_size, sa, 0)
         payloads += bytes([0xAA + 0x11 * i]) * payload_size
 
+    symflag = FLAG_ELF if symtab == "elf" else FLAG_AOUT
     buf = bytearray(PAYLOAD_OFF)
     struct.pack_into(
         "<IIIIIII", buf, 0,
         FLAG_MEM | FLAG_BOOTDEV | FLAG_CMDLINE | FLAG_MODS
-        | FLAG_ELF | FLAG_MMAP | FLAG_DRIVES
-        | FLAG_CONFIG | FLAG_LOADER_NAME,
+        | symflag | FLAG_MMAP | FLAG_DRIVES
+        | FLAG_CONFIG | FLAG_LOADER_NAME | FLAG_APM | FLAG_VBE,
         MEM_LOWER, MEM_UPPER, BOOT_DEVICE,
         BASE + CMD_OFF,        # cmdline       (+16)
         count,                 # mods_count    (+20)
         BASE + MODS_OFF,       # mods_addr     (+24)
     )
-    struct.pack_into(
-        "<IIII", buf, 28,
-        ELF_NUM, ELF_ENTSIZE, ELF_ADDR, ELF_SHNDX,   # elf_sec (+28..+40)
-    )
+    if symtab == "elf":
+        struct.pack_into(
+            "<IIII", buf, 28,
+            ELF_NUM, ELF_ENTSIZE, ELF_ADDR, ELF_SHNDX,  # elf_sec (+28..+40)
+        )
+    else:
+        struct.pack_into(
+            "<IIII", buf, 28,
+            tabsize, strsize, BASE + AOUT_OFF, 0,       # aout_sym (+28..+40)
+        )
     struct.pack_into(
         "<II", buf, 44,
         len(mmap), BASE + MMAP_OFF,                  # mmap_length/addr
@@ -332,6 +451,12 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
     struct.pack_into("<II", buf, 52, len(drive), BASE + DRIVES_OFF)
     struct.pack_into("<I", buf, 60, BASE + CONFIG_OFF)   # config_table
     struct.pack_into("<I", buf, 64, BASE + name_off)     # boot_loader_name
+    struct.pack_into("<I", buf, 68, BASE + APM_OFF)      # apm_table
+    struct.pack_into(
+        "<IIHHHH", buf, 72,                              # vbe_* (+72..+87)
+        BASE + VBE_OFF, BASE + vbe_mode_off,
+        VBE_MODE, VBE_IF_SEG, VBE_IF_OFF, VBE_IF_LEN,
+    )
     for arg, addr in zip(mod_args, str_addrs):
         struct.pack_into(f"{len(arg) + 1}s", buf, addr - BASE, arg + b"\x00")
     struct.pack_into(f"{len(descs)}s", buf, MODS_OFF, descs)
@@ -341,13 +466,31 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
     struct.pack_into(f"{len(CONFIG_TABLE)}s", buf, CONFIG_OFF, CONFIG_TABLE)
     struct.pack_into(f"{len(LOADER_NAME) + 1}s", buf, name_off,
                      LOADER_NAME + b"\x00")
+    struct.pack_into(f"{len(apm)}s", buf, APM_OFF, apm)
+    struct.pack_into(f"{len(VBE_CONTROL_BLOB)}s", buf, VBE_OFF,
+                     VBE_CONTROL_BLOB)
+    struct.pack_into(f"{len(VBE_MODE_BLOB)}s", buf, vbe_mode_off,
+                     VBE_MODE_BLOB)
+    if symtab == "aout":
+        struct.pack_into(f"{len(aout_blob)}s", buf, AOUT_OFF, aout_blob)
     return bytes(buf) + payloads
 
 
 def main() -> None:
     outdir = Path.cwd() / "testbuild/overlay"
     #outdir = Path(__file__).resolve().parent / "testbuild/overlay"
-    outdir.mkdir(exist_ok=True,parents=True)
+    outdir.mkdir(exist_ok=True, parents=True)
+
+    everything_args = dict(
+        cmdline=b"/boot/eos.elf console=vga loglevel=7",
+        mod_args=[
+            b"/boot/initrd.img root=/dev/hda1",
+            b"/boot/font.psf",
+            b"/boot/eos.cfg quiet",
+        ],
+        drive_list=DRIVES_1994,
+        mmap_entries=MMAP_ENTRIES,
+    )
 
     overlays = {
         # realistic GRUB-style cmdline: kernel path then arguments
@@ -387,16 +530,19 @@ def main() -> None:
         # bit 4 set: a.out symbol table (the ELF union's other half) —
         # three text symbols with nlist entries and a string table
         "aout_syms.bin": build_aout(AOUT_SYMBOLS),
-        # every flag and satellite from all overlays above, in one image
-        "everything.bin": build_everything(
-            b"/boot/eos.elf console=vga loglevel=7",
-            [
-                b"/boot/initrd.img root=/dev/hda1",
-                b"/boot/font.psf",
-                b"/boot/eos.cfg quiet",
-            ],
-            DRIVES_1994,
-            MMAP_ENTRIES,
+        # bit 10 set: the 20-byte APM table, transposition-hostile
+        # word tracers
+        "apm.bin": build_apm(APM_TABLE),
+        # bit 11 set: VBE pointer pair to opaque signature blocks plus
+        # the mode/seg/off/len word run
+        "vbe.bin": build_vbe(),
+        # every flag and satellite from all overlays above, in one
+        # image — union offsets 28..40 carry the ELF half here
+        "everything.bin": build_everything(**everything_args),
+        # same image with the union's a.out half: bit 4 for bit 5,
+        # symbol satellite populated in its slot
+        "everything_aout.bin": build_everything(
+            **everything_args, symtab="aout",
         ),
     }
 
