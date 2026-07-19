@@ -30,6 +30,7 @@ FLAG_CONFIG = 1 << 8
 FLAG_LOADER_NAME = 1 << 9
 FLAG_APM = 1 << 10
 FLAG_VBE = 1 << 11
+FLAG_FRAMEBUFFER = 1 << 12
 
 MEM_LOWER = 639
 MEM_UPPER = 129920
@@ -144,6 +145,38 @@ VBE_MODE = 0x4115
 VBE_IF_SEG = 0xC0A5
 VBE_IF_OFF = 0x96B4
 VBE_IF_LEN = 0x00C8
+
+# Framebuffer fields (flag bit 12), struct offsets 88..115. Period
+# flavor matches drives_1994: a 1024x768 mode on a 1994-vintage card
+# is 8bpp INDEXED (type 0) — a 1 MB card hasn't the RAM for direct
+# color at that resolution — so indexed is this fleet's native
+# variant, with the palette satellite that entails. Types 1 (RGB)
+# and 2 (EGA text) are the union's other legs, unfixtured for now.
+# pitch is deliberately NOT width*bytes (1152 vs 1024): a padded
+# scanline is legal, and pitch/width conflation must not be able to
+# hide. addr is a period-plausible sub-4GiB LFB — which means the
+# qword's high dword is zero and a half-swap there is invisible;
+# accepted trade, flavor over dye.
+FB_ADDR = 0x00000000E0000000
+FB_PITCH = 1152
+FB_WIDTH = 1024
+FB_HEIGHT = 768
+FB_BPP = 8
+FB_TYPE_INDEXED = 0
+
+# The palette satellite: 3-byte RGB descriptors. The canonical VGA
+# 16-color set — period-correct, and its 0x00/0x55/0xAA/0xFF bytes
+# make a gdb dump self-identifying.
+FB_PALETTE = [
+    (0x00, 0x00, 0x00), (0x00, 0x00, 0xAA),
+    (0x00, 0xAA, 0x00), (0x00, 0xAA, 0xAA),
+    (0xAA, 0x00, 0x00), (0xAA, 0x00, 0xAA),
+    (0xAA, 0x55, 0x00), (0xAA, 0xAA, 0xAA),
+    (0x55, 0x55, 0x55), (0x55, 0x55, 0xFF),
+    (0x55, 0xFF, 0x55), (0x55, 0xFF, 0xFF),
+    (0xFF, 0x55, 0x55), (0xFF, 0x55, 0xFF),
+    (0xFF, 0xFF, 0x55), (0xFF, 0xFF, 0xFF),
+]
 
 
 def build(flags: int, cmdline: bytes | None) -> bytes:
@@ -291,6 +324,45 @@ def build_vbe() -> bytes:
     return bytes(buf) + VBE_CONTROL_BLOB + VBE_MODE_BLOB
 
 
+def pack_palette(palette: list[tuple[int, int, int]]) -> bytes:
+    """Palette satellite: 3-byte red/green/blue descriptors,
+    back-to-back, no count field — the count lives in the struct's
+    framebuffer_palette_num_colors, nowhere in the satellite."""
+    return b"".join(struct.pack("<BBB", r, g, b) for r, g, b in palette)
+
+
+def pack_fb_fields(buf: bytearray, palette_addr: int,
+                   num_colors: int) -> None:
+    """Framebuffer fields into struct offsets 88..115: addr(8)
+    pitch(4) width(4) height(4) bpp(1) type(1), then the color_info
+    union at 110 in its type-0 (indexed) shape: palette_addr(4)
+    palette_num_colors(2). The union's shape is selected by the type
+    BYTE at 109 — a value-discriminated union, unlike the flag-bit-
+    discriminated syms union."""
+    struct.pack_into(
+        "<QIIIBB", buf, 88,
+        FB_ADDR, FB_PITCH, FB_WIDTH, FB_HEIGHT, FB_BPP, FB_TYPE_INDEXED,
+    )
+    struct.pack_into("<IH", buf, 110, palette_addr, num_colors)
+
+
+def build_fb_indexed(palette: list[tuple[int, int, int]]) -> bytes:
+    """Multiboot struct with bit 12 (+mem/bootdev) set, type 0
+    (indexed): framebuffer fields at 88..115, palette satellite at
+    0x80. First fixture whose struct reads run past offset 88 — and
+    the struct now ends at 116, twelve bytes shy of the 0x80
+    satellite convention."""
+    PALETTE_OFF = 0x80
+    buf = bytearray(PALETTE_OFF)
+    struct.pack_into(
+        "<IIII", buf, 0,
+        FLAG_MEM | FLAG_BOOTDEV | FLAG_FRAMEBUFFER,
+        MEM_LOWER, MEM_UPPER, BOOT_DEVICE,
+    )
+    pack_fb_fields(buf, BASE + PALETTE_OFF, len(palette))
+    return bytes(buf) + pack_palette(palette)
+
+
 def build_modules(cmdline: bytes, mod_args: list[bytes],
                   payload_size: int = 64) -> bytes:
     """Multiboot struct + module descriptor array + arg strings + payloads.
@@ -359,7 +431,8 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
                      symtab: str = "elf") -> bytes:
     """Union of every overlay's targeted data: mem + bootdev + cmdline
     + modules + symbol fields + mmap + drives + config + loader name
-    + APM + VBE, all satellites populated.
+    + APM + VBE + framebuffer (type 0, indexed, palette satellite),
+    all satellites populated.
 
     Offsets 28..40 are ONE union — a.out (bit 4) or ELF (bit 5), never
     both — so "everything" is necessarily a two-variant family:
@@ -378,13 +451,14 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
       0x280  APM table, 20 bytes
       0x2A0  VBE control block, then mode block
       0x2E0  a.out symbol satellite (aout variant only)
-      0x340  module payloads, payload_size bytes each, distinct fill bytes
+      0x340  framebuffer palette: 16 x 3-byte RGB descriptors
+      0x380  module payloads, payload_size bytes each, distinct fill bytes
     """
     assert symtab in ("elf", "aout"), "symtab must be 'elf' or 'aout'"
     MODS_OFF, STRINGS_OFF, CMD_OFF = 0x080, 0x0D0, 0x140
     DRIVES_OFF, MMAP_OFF = 0x170, 0x1B0
     CONFIG_OFF, APM_OFF, VBE_OFF = 0x240, 0x280, 0x2A0
-    AOUT_OFF, PAYLOAD_OFF = 0x2E0, 0x340
+    AOUT_OFF, PALETTE_OFF, PAYLOAD_OFF = 0x2E0, 0x340, 0x380
     count = len(mod_args)
     assert MODS_OFF + count * 16 <= STRINGS_OFF, "descriptors overflow strings"
 
@@ -413,8 +487,12 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
         "vbe blocks overflow aout"
 
     aout_blob, tabsize, strsize = pack_aout_syms(AOUT_SYMBOLS)
-    assert AOUT_OFF + len(aout_blob) <= PAYLOAD_OFF, \
-        "aout satellite overflows payloads"
+    assert AOUT_OFF + len(aout_blob) <= PALETTE_OFF, \
+        "aout satellite overflows palette"
+
+    palette = pack_palette(FB_PALETTE)
+    assert PALETTE_OFF + len(palette) <= PAYLOAD_OFF, \
+        "palette overflows payloads"
 
     descs, payloads = b"", b""
     for i, sa in enumerate(str_addrs):
@@ -428,7 +506,8 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
         "<IIIIIII", buf, 0,
         FLAG_MEM | FLAG_BOOTDEV | FLAG_CMDLINE | FLAG_MODS
         | symflag | FLAG_MMAP | FLAG_DRIVES
-        | FLAG_CONFIG | FLAG_LOADER_NAME | FLAG_APM | FLAG_VBE,
+        | FLAG_CONFIG | FLAG_LOADER_NAME | FLAG_APM | FLAG_VBE
+        | FLAG_FRAMEBUFFER,
         MEM_LOWER, MEM_UPPER, BOOT_DEVICE,
         BASE + CMD_OFF,        # cmdline       (+16)
         count,                 # mods_count    (+20)
@@ -457,6 +536,7 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
         BASE + VBE_OFF, BASE + vbe_mode_off,
         VBE_MODE, VBE_IF_SEG, VBE_IF_OFF, VBE_IF_LEN,
     )
+    pack_fb_fields(buf, BASE + PALETTE_OFF, len(FB_PALETTE))  # fb (+88..+115)
     for arg, addr in zip(mod_args, str_addrs):
         struct.pack_into(f"{len(arg) + 1}s", buf, addr - BASE, arg + b"\x00")
     struct.pack_into(f"{len(descs)}s", buf, MODS_OFF, descs)
@@ -471,6 +551,7 @@ def build_everything(cmdline: bytes, mod_args: list[bytes],
                      VBE_CONTROL_BLOB)
     struct.pack_into(f"{len(VBE_MODE_BLOB)}s", buf, vbe_mode_off,
                      VBE_MODE_BLOB)
+    struct.pack_into(f"{len(palette)}s", buf, PALETTE_OFF, palette)
     if symtab == "aout":
         struct.pack_into(f"{len(aout_blob)}s", buf, AOUT_OFF, aout_blob)
     return bytes(buf) + payloads
@@ -536,6 +617,9 @@ def main() -> None:
         # bit 11 set: VBE pointer pair to opaque signature blocks plus
         # the mode/seg/off/len word run
         "vbe.bin": build_vbe(),
+        # bit 12 set, type 0: the 1994-native framebuffer — 1024x768x8
+        # indexed, VGA 16-color palette satellite, padded pitch
+        "fb_indexed_1994.bin": build_fb_indexed(FB_PALETTE),
         # every flag and satellite from all overlays above, in one
         # image — union offsets 28..40 carry the ELF half here
         "everything.bin": build_everything(**everything_args),
