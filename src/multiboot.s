@@ -29,6 +29,7 @@ FLG_DRIVE_INFO equ 0x80
 FLG_CFG_TBL equ 0x100
 FLG_BL_NAME equ 0x200
 FLG_APM_TBL equ 0x400
+FLG_VBE_TBL equ 0x800
 BOOT_DEV_OFF equ 0xc
 ASCII_FF equ 0x4646
 
@@ -132,9 +133,18 @@ section .rodata
 	apm_cseg16_len_msg_len equ $- apm_cseg16_len_msg
 	apm_dseg_len_msg db "APM data segment length: "
 	apm_dseg_len_msg_len equ $-apm_dseg_len_msg
-
-
-
+	vbe_ctrl_addr_msg db "VBE control info address: "
+	vbe_ctrl_addr_len equ $-vbe_ctrl_addr_msg
+	vbe_mode_addr_msg db "VBE mode info address: "
+	vbe_mode_addr_len equ $-vbe_mode_addr_msg
+	vbe_mode_msg db "VBE mode: "
+	vbe_mode_msg_len equ $-vbe_mode_msg
+	vbe_iface_seg_msg db "VBE interface segment: "
+	vbe_iface_seg_msg_len equ $-vbe_iface_seg_msg
+	vbe_iface_off_msg db "VBE interface offset: "
+	vbe_iface_off_msg_len equ $-vbe_iface_off_msg
+	vbe_iface_len_msg db "VBE interface length: "
+	vbe_iface_len_msg_len equ $-vbe_iface_len_msg
 
 
 section .text
@@ -293,6 +303,45 @@ mb_prn_rpt:
 	mov eax, [ebx+0x44]
 	call prn_apm_tbl
 .skip_apm_tbl:
+	test dword [mb_flags], FLG_VBE_TBL
+	jz .skip_vbe_tbl
+	call fb_skip_line
+	mov esi, vbe_ctrl_addr_msg
+	mov ecx, vbe_ctrl_addr_len
+	call prn_msg
+	mov eax, [ebx+0x48]
+	call prn_hex_dword
+	call fb_skip_line
+	mov esi, vbe_mode_addr_msg
+	mov ecx, vbe_mode_addr_len
+	call prn_msg
+	mov eax, [ebx+0x4c]
+	call prn_hex_dword
+	call fb_skip_line
+	mov esi, vbe_mode_msg
+	mov ecx, vbe_mode_msg_len
+	call prn_msg
+	mov eax, [ebx+0x50]
+	call prn_hex_wordl
+	call fb_skip_line
+	mov esi, vbe_iface_seg_msg
+	mov ecx, vbe_iface_seg_msg_len
+	call prn_msg
+	mov eax, [ebx+0x52]
+	call prn_hex_wordl
+	call fb_skip_line
+	mov esi, vbe_iface_off_msg
+	mov ecx, vbe_iface_off_msg_len
+	call prn_msg
+	mov eax, [ebx+0x54]
+	call prn_hex_wordl
+	call fb_skip_line
+	mov esi, vbe_iface_len_msg
+	mov ecx, vbe_iface_len_msg_len
+	call prn_msg
+	mov eax, [ebx+0x56]
+	call prn_hex_wordl
+.skip_vbe_tbl:
 	; unset indent
 	mov dword [fb_indent_bytes], 0x0
 
