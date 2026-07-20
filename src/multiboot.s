@@ -154,16 +154,26 @@ section .rodata
 	fb_width_msg_len equ $-fb_width_msg
 	fb_height_msg db "Framebuffer height: "
 	fb_height_msg_len equ $-fb_height_msg
-	fb_bpp_msg db "Framebuffer bpp: "
-	fb_bpp_msg_len equ $-fb_bpp_msg
+	fb_t0_bpp_msg db "Framebuffer bits-per-pixel: "
+	fb_t0_bpp_msg_len equ $-fb_t0_bpp_msg
 	fb_type_msg db "Framebuffer type: "
 	fb_type_msg_len equ $-fb_type_msg
-	fb_pal_msg db "Framebuffer palatte address: "
-	fb_pal_msg_len equ $-fb_pal_msg
-	fb_pal_num_msg db "Framebuffer palatte color count: "
-	fb_pal_num_msg_len equ $-fb_pal_num_msg
-
-
+	fb_t0_pal_msg db "Framebuffer palette address: "
+	fb_t0_pal_msg_len equ $-fb_t0_pal_msg
+	fb_t0_pal_num_msg db "Framebuffer palette color count: "
+	fb_t0_pal_num_msg_len equ $-fb_t0_pal_num_msg
+	fb_t2_bpc_msg db "Framebuffer bits-per-cell: "
+	fb_t2_bpc_msg_len equ $-fb_t2_bpc_msg
+	pix_msg db " pixels"
+	pix_msg_len equ $-pix_msg
+	pbs_msg db " bytes/scanline"
+	pbs_msg_len equ $-pbs_msg
+	char_msg db " characters"
+	char_msg_len equ $-char_msg
+	bpt_msg db " bytes/text line"
+	bpt_msg_len equ $-bpt_msg
+	fb_nosup db "Framebuffer color type not supported."
+	fb_nosup_len equ $-fb_nosup
 
 section .text
 mb_prn_rpt:
@@ -362,6 +372,26 @@ mb_prn_rpt:
 .skip_vbe_tbl:
 	test dword [mb_flags], FLG_FB_TBL
 	jz .skip_fb_tbl
+	call prn_fb_data
+.skip_fb_tbl:
+	; unset indent
+	mov dword [fb_indent_bytes], 0x0
+	; close lease
+	mov [fb_mem_addr], edi
+	call crtc_write_cursor
+	pop ebx
+	ret
+
+; print framebuffer data in multiboot report
+; only supports type 0 and 2 framebuffers
+; ebx is the struct base pointer (preserved)
+; trashed: eax/ecx/edx/esi
+; updated: edi
+prn_fb_data:
+	; read type first to interpret remaining
+	mov al, [ebx+0x6d]
+	cmp al, 0
+	jne .test_type_2
 	call fb_skip_line
 	mov esi, fb_addr_msg
 	mov ecx, fb_addr_msg_len
@@ -374,69 +404,133 @@ mb_prn_rpt:
 	mov ecx, fb_pitch_msg_len
 	call prn_msg
 	mov eax, [ebx+0x60]
-	call prn_hex_dword
+	call prn_dec
+	mov esi, pbs_msg
+	mov ecx, pbs_msg_len
+	call prn_msg
 	call fb_skip_line
 	mov esi, fb_width_msg
 	mov ecx, fb_width_msg_len
 	call prn_msg
 	mov eax, [ebx+0x64]
-	call prn_hex_dword
+	call prn_dec
+	mov esi, pix_msg
+	mov ecx, pix_msg_len
+	call prn_msg
 	call fb_skip_line
 	mov esi, fb_height_msg
 	mov ecx, fb_height_msg_len
 	call prn_msg
 	mov eax, [ebx+0x68]
-	call prn_hex_dword
+	call prn_dec
+	mov esi, pix_msg
+	mov ecx, pix_msg_len
+	call prn_msg
 	call fb_skip_line
-	mov esi, fb_bpp_msg
-	mov ecx, fb_bpp_msg_len
+	mov esi, fb_t0_bpp_msg
+	mov ecx, fb_t0_bpp_msg_len
 	call prn_msg
 	mov eax, [ebx+0x6c]
 	mov ecx, 0
-	call prn_hex_byte
+	call prn_dec_byte
 	call fb_skip_line
 	mov esi, fb_type_msg
 	mov ecx, fb_type_msg_len
 	call prn_msg
 	mov eax, [ebx+0x6d]
-	.bp1:
 	mov ecx, 0
-	.bp2:
-	call prn_hex_byte
-	.bp3:
+	call prn_dec_byte
 	call prn_fb_color
-.skip_fb_tbl:
-	; unset indent
-	mov dword [fb_indent_bytes], 0x0
-	; close lease
-	mov [fb_mem_addr], edi
-	call crtc_write_cursor
-	pop ebx
+	ret
+.test_type_2:
+	mov al, [ebx+0x6d]
+	cmp al, 2
+	jne .unsupported
+	call fb_skip_line
+	mov esi, fb_addr_msg
+	mov ecx, fb_addr_msg_len
+	call prn_msg
+	mov eax, [ebx+0x58]
+	mov edx, [ebx+0x5c]
+	call prn_hex_qword
+	call fb_skip_line
+	mov esi, fb_pitch_msg
+	mov ecx, fb_pitch_msg_len
+	call prn_msg
+	mov eax, [ebx+0x60]
+	call prn_dec
+	mov esi, bpt_msg
+	mov ecx, bpt_msg_len
+	call prn_msg
+	call fb_skip_line
+	mov esi, fb_width_msg
+	mov ecx, fb_width_msg_len
+	call prn_msg
+	mov eax, [ebx+0x64]
+	call prn_dec
+	mov esi, char_msg
+	mov ecx, char_msg_len
+	call prn_msg
+	call fb_skip_line
+	mov esi, fb_height_msg
+	mov ecx, fb_height_msg_len
+	call prn_msg
+	mov eax, [ebx+0x68]
+	call prn_dec
+	mov esi, char_msg
+	mov ecx, char_msg_len
+	call prn_msg
+	call fb_skip_line
+	mov esi, fb_t2_bpc_msg
+	mov ecx, fb_t2_bpc_msg_len
+	call prn_msg
+	mov eax, [ebx+0x6c]
+	mov ecx, 0
+	call prn_dec_byte
+	call fb_skip_line
+	mov esi, fb_type_msg
+	mov ecx, fb_type_msg_len
+	call prn_msg
+	mov eax, [ebx+0x6d]
+	mov ecx, 0
+	call prn_dec_byte
+	ret
+.unsupported:
+	call fb_skip_line
+	mov esi, fb_nosup
+	mov ecx, fb_nosup_len
+	call prn_msg
 	ret
 
 ; print fb color characteristics. only supports
-; index-color type reporting.
-; eax holds pointer to 6 byte union with color info (consumed)
+; index-color (type 0) reporting.
+; al contains the fb color type
+; trashed: eax/ecx/edx/esi
+; preserved: ebx
+; updated: edi
 prn_fb_color:
 	cmp al, 0
 	jne .skip_color_rpt
 	call fb_skip_line
-	mov esi, fb_pal_msg
-	mov ecx, fb_pal_msg_len
+	mov esi, fb_t0_pal_msg
+	mov ecx, fb_t0_pal_msg_len
 	call prn_msg
 	mov eax, [ebx+0x6e]
 	call prn_hex_dword
 	call fb_skip_line
-	mov esi, fb_pal_num_msg
-	mov ecx, fb_pal_num_msg_len
+	mov esi, fb_t0_pal_num_msg
+	mov ecx, fb_t0_pal_num_msg_len
 	call prn_msg
 	mov eax, [ebx+0x72]
-	call prn_hex_wordl
+	call prn_dec_wordl
 .skip_color_rpt:
 	ret
 
 ; print the APM information table
 ; eax is the address of the array start (consumed)
+; trashed: eax/ecx/esi
+; preserved: ebx
+; updated: edi
 prn_apm_tbl:
 	push ebx
 	mov ebx, eax
@@ -510,6 +604,7 @@ prn_apm_tbl:
 ; print drive volume information array
 ; eax is the address of the array start (consumed)
 ; ecx is the number of bytes in the array (consumed)
+; preserved: ebx
 ; trashed: eax/ecx/edx/esi
 prn_drive_nfo:
 	push ebx

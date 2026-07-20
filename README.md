@@ -22,6 +22,10 @@ to the screen:
 - memory map layout
 - BIOS drive geometry (incluiding I/O port lists)
 - ROM config table information
+- bootloader name
+- APM BIOS interface table
+- VBE mode and interface information
+- framebuffer characteristics (indexed-color and EGA-text types)
 
 Although some of these fields are exclusively historical at this point, the
 logic necessary to load, analyze, and report their contents represents an
@@ -110,8 +114,6 @@ NASM warnings that produce silently wrong code (`number-overflow`,
     (gdb) c
 
 The window will print and scroll as needed to present multiboot data.
-
-
 
 ## Reference
 

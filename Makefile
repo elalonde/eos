@@ -15,12 +15,16 @@ SRCS := $(wildcard $(SRC_DIR)/*.c) $(wildcard $(SRC_DIR)/*.s)
 OBJS := $(patsubst $(SRC_DIR)/%.s,$(BUILD_DIR)/%.o,$(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS)))
 UT_OVERLAY_BINS := \
 	$(OVERLAY_BUILD_DIR)/aout_syms.bin \
+	$(OVERLAY_BUILD_DIR)/apm.bin \
 	$(OVERLAY_BUILD_DIR)/cmdline_empty.bin \
 	$(OVERLAY_BUILD_DIR)/cmdline_flag_clear.bin \
 	$(OVERLAY_BUILD_DIR)/cmdline_populated.bin \
 	$(OVERLAY_BUILD_DIR)/drives_1994.bin \
 	$(OVERLAY_BUILD_DIR)/everything.bin \
-	$(OVERLAY_BUILD_DIR)/modules_3.bin
+	$(OVERLAY_BUILD_DIR)/fb_indexed_1994.bin \
+	$(OVERLAY_BUILD_DIR)/loader_and_config.bin \
+	$(OVERLAY_BUILD_DIR)/modules_3.bin \
+	$(OVERLAY_BUILD_DIR)/vbe.bin
 UT_OVERLAY_SENTINEL := $(OVERLAY_BUILD_DIR)/.sentinal
 UT_OVERLAY_GENERATOR := bin/gen_overlays.py
 
