@@ -16,6 +16,9 @@ MAGIC_NUMBER equ 0x1BADB002     ; define the magic number constant
 FLAGS        equ 0x0            ; multiboot flags
 CHECKSUM     equ -MAGIC_NUMBER  ; calculate the checksum
                                 ; (magic number + checksum + flags should equal 0)
+CODE_SEG equ code_descriptor - gdt_start
+DATA_SEG equ data_descriptor - gdt_start
+
 section .bss
 	align 4
 kernel_stack:
@@ -32,6 +35,31 @@ section .multiboot
 	dd FLAGS
 	dd CHECKSUM
 
+section .data
+gdt_start:
+	; selector 0
+	dq 0      ; nul entry
+code_descriptor:
+	; selector 1 (code)
+	dw 0xFFFF ; 16 bits of limit
+	dw 0      ; 16 bits of base
+	db 0      ; 8 bits of base
+	db 0x9A   ; lower:type, upper: S,DPL,P
+	db 0xCF   ; lower:limit,upper: A,L,D,G
+	db 0      ; 8 bits of base
+data_descriptor:
+	; selector 2 (data)
+	dw 0xFFFF ; 16 bits of limit
+	dw 0      ; 16 bits of base
+	db 0      ; 8 bits of base
+	db 0x92   ; lower:type, upper: S,DPL,P
+	db 0xCF   ; lower:limit,upper: A,L,D,G
+	db 0      ; 8 bits of base
+gdt_end:
+gdt_descriptor:
+	dw gdt_end - gdt_start - 1  ; Limit (Size of GDT minus 1)
+	dd gdt_start                ; Base Address of GDT
+
 section .text
 load_eos:
 	; zero out .bss region
@@ -43,10 +71,24 @@ load_eos:
 	shr ecx, 2
 	rep stosd
 
-	; set stack pointer
+	; set up gdt and flush segment registers
+	cli
+	lgdt [gdt_descriptor]
+	mov ax, DATA_SEG
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+	; update ss and stack pointer in lockstep
+	mov ss, ax
 	mov esp, kernel_stack + KERNEL_STACK_SIZE
-	call crtc_write_scanline
 
+	; flush CS register
+	jmp CODE_SEG:flush_cs_register
+flush_cs_register:
+	; set color for all screen writes
+	call crtc_write_scanline
+	; load and store fb address
 	call crtc_read_fb_addr
 	mov [fb_mem_addr], eax
 	mov edi, eax
@@ -67,3 +109,4 @@ load_eos:
 	cli
 	hlt
 	jmp .hang
+
