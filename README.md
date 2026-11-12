@@ -2,50 +2,51 @@
 
 Kernel programming exercises for a custom x86 operating system, begun
 from [*The Little Book About OS Development*][littleosbook] by Erik Helin
-and Adam Renberg. Over time, development has moved into directions not covered
-by the book in order to satisfy the curiosity of the author.
+and Adam Renberg. Over time, development has moved in directions the book
+does not cover, to satisfy my curiosity.
 
 ## About
 
-A from-scratch walk through low-level x86 systems programming as a
-learning exercise: NASM assembly, i386 protected mode, booted by
+eos is a built-from-scratch walk through of low-level x86 systems programming as a
+learning exercise: it is NASM assembly, executed in i386 protected mode, booted by
 GRUB 2 as a Multiboot 1 kernel, and run under QEMU.
 
-The current focus is a fairly-complete Multiboot 1 information report.
-At boot, the struct provided by GRUB is walked and its contents are printed
-to the screen:
+The current focus is a fairly complete Multiboot 1 information report.
+At boot, the kernel walks the struct provided by GRUB and prints its
+contents to the screen:
 - memory boundaries
 - boot devices and partition chains
 - kernel command line arguments
 - modules loaded by the bootloader
 - ELF section header information
 - memory map layout
-- BIOS drive geometry (incluiding I/O port lists)
+- BIOS drive geometry (including I/O port lists)
 - ROM config table information
 - bootloader name
 - APM BIOS interface table
 - VBE mode and interface information
 - framebuffer characteristics (indexed-color and EGA-text types)
 
-Although some of these fields are exclusively historical at this point, the
-logic necessary to load, analyze, and report their contents represents an
-excellent opportunity for a developer to dig deeper into assembly
-programming (see Topics).
+Some of these fields are purely historical now, but the logic needed to
+load, analyze, and report them is an excellent opportunity to dig deeper
+into assembly programming (see [Topics](#topics)).
 
-Planned near-future work includes:
-- memory segmentation
+Beyond the report, the kernel defines and loads its own GDT.
+
+Planned near-future work:
 - interrupts
 - keyboard IRQs
 
-Planned eventual work includes:
-- Memory management
-- Process scheduler
-- Userspace
+Planned eventual work:
+- memory management
+- process scheduler
+- userspace
 
 ## Topics
 
 - Multiboot 1 compliance: header, flags word, and the info struct walk
-- Major section parsing is gated by flag testing
+- Flag-gated parsing: each major section is read only when its flag
+  bit is set
 - Fixed-base struct addressing vs. walking pointers for arrays
 - Self-sizing array walks: byte budgets, borrow-guarded termination,
   and the "does the length count itself" question (mmap says no,
@@ -57,63 +58,79 @@ Planned eventual work includes:
   byte/word/dword/qword widths, built on a shared engine
 - Register contracts: per-routine banners documenting trashed and
   preserved registers, with preservation shielded at the trashing
-  site rather than defended at every call. All of which is built around
-  a goal to respect heritage register roles.
+  site rather than defended at every call. The contracts aim to
+  respect the registers' heritage roles.
 
 ## Layout
 
-    src/loader.s      boot entry
-    src/multiboot.s   the info-struct report (mb_prn_rpt and walkers)
-    src/prn.s         printer family
-    src/fb.s          framebuffer: scroll, line skip, indent
-    src/crtc.s        hardware cursor
-    src/util.s        conversions (byte_to_hex)
-    src/link.ld       linker script; .multiboot section placed first
+    src/loader.s         boot entry: BSS clear, GDT, stack
+    src/multiboot.s      the info-struct report (mb_prn_rpt and walkers)
+    src/prn.s            printer family
+    src/fb.s             framebuffer: scroll, line skip, indent
+    src/crtc.s           hardware cursor
+    src/util.s           conversions (byte_to_hex)
+    src/link.ld          linker script; .multiboot section placed first
+    src/iso/boot/grub/   GRUB menu entry for the ISO
+    bin/gen_overlays.py  fixture generator (see Testing)
 
 Each `.s` has a matching `.inc` documenting exactly its exported
 symbols and their register contracts.
+
+## Build and run
+
+Requires `nasm`, `ld`, `grub-mkrescue` (which needs `xorriso`),
+`qemu-system-i386`, `gdb`, and `python3`.
+
+    make            build the kernel and the ISO
+    make run        boot the ISO under QEMU; prints the Multiboot struct
+                    that GRUB hands to the kernel
+    make debug      boot under QEMU, halted and waiting for GDB on
+                    tcp::1234
+    make gdb        attach GDB to `make debug` and set a hardware
+                    breakpoint at `load_eos`. Set your first breakpoint
+                    here. Once reached, you may set subsequent break
+                    points as needed. Otherwise, your breakpoints will
+                    never hit, because GRUB has not loaded the kernel into
+                    memory yet.
+    make test       generate the fixture overlays in testbuild/overlay/
+    make clean      remove build/
+    make testclean  remove testbuild/
+
+NASM warnings that produce silently wrong code (`number-overflow`,
+`orphan-labels`) are promoted to errors.
 
 ## Testing
 
 Boot-time behavior is validated against fixture overlays: synthetic
 Multiboot structures generated by `bin/gen_overlays.py` and injected
 over GRUB's real struct at the kernel entry breakpoint via GDB
-`restore`. Fixtures sometimes use obviously-synthetic tracer values
-from a time period when the Multiboot 1 structure would have been used to
-report actual hardware information. (drive geometry, etc).
+`restore`. Fixtures use obviously synthetic tracer values, or values
+plausible for the period when the Multiboot 1 structure reported real
+hardware (drive geometry, etc.).
 
-## Build and run
-
-    make            build the kernel and ISO. Requires `grub-mkrescue`.
-    make run        boot it under QEMU. Right now this prints the multiboot
-                    struct packed by the `grub-mkrescue` utility during build.
-    make debug      QEMU with GDB remote attach and a pre-defined hbreak
-                    at `load_eos`. (software breakpoints predate GRUB
-                    relocation)
-    make gdb        the "remote" client-side to `make debug`. Here we can
-                    restore overlays *after* we reach the `load_eos` hardware
-                    breakpoint. (See examples)
-    make test       Generate fixture overlays for testing and debugging.
-
-NASM warnings that produce silently wrong code (`number-overflow`,
-`orphan-labels`) are promoted to errors.
+There is no automated check yet: the report is read off the screen.
 
 ### Fixture usage
-    in window one:
+
+In window one, generate the overlays and start QEMU:
+
     $ ./bin/gen_overlays.py
     $ make debug
-    in window two:
+
+In window two, attach GDB:
+
     $ make gdb
-    within gdb prompt:
-    # continue to the `load_eos` hardware breakpoint:
+
+At the GDB prompt, continue to the `load_eos` breakpoint, restore a
+fixture (here, the one with all fields populated), point `ebx` at it,
+and continue:
+
     (gdb) c
-    # restore multiboot struct fixture with all fields populated
     (gdb) restore testbuild/overlay/everything.bin binary 0x90000
-    # point ebx register to fixture
-    (gdb) set $ebx 0x90000
+    (gdb) set $ebx = 0x90000
     (gdb) c
 
-The window will print and scroll as needed to present multiboot data.
+The QEMU window prints the report, scrolling as needed.
 
 ## Reference
 
