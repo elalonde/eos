@@ -139,3 +139,7 @@ The QEMU window prints the report, scrolling as needed.
 
 [littleosbook]: https://littleosbook.github.io/
 [multiboot]: https://www.gnu.org/software/grub/manual/multiboot/multiboot.html
+
+## License
+
+MIT. See [LICENSE](LICENSE).
