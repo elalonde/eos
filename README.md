@@ -1,20 +1,13 @@
 # EOS
 
-Kernel programming exercises for a custom x86 operating system, begun
-from [*The Little Book About OS Development*][littleosbook] by Erik Helin
-and Adam Renberg. Over time, development has moved in directions the book
-does not cover, to satisfy my curiosity.
-
-## About
-
 eos is a built-from-scratch walk through of low-level x86 systems programming as a
 learning exercise: it is NASM assembly, executed in i386 protected mode, booted by
 GRUB 2 as a Multiboot 1 kernel, and run under QEMU. Of course, it is entirely
 written by hand, because that is where the joy comes from.
 
 The work was motivated by walking through [*The Little Book About OS Development*][littleosbook]
-by Erik Helin and Adam Renberg. Over time, development has moved in directions the book
-does not cover, to satisfy my curiosity.
+by Erik Helin and Adam Renberg. My curiosity has taken me away from strictly
+following the little os book, but I still use it as a guiding light.
 
 The current focus is a fairly complete Multiboot 1 information report.
 At boot, the kernel walks the struct provided by GRUB and prints its
